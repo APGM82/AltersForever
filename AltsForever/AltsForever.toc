@@ -1,0 +1,21 @@
+## Interface: 16001
+## Title: |cff66cc99Alts Forever|r
+## Version: 1.00
+## SavedVariables: AltsForeverDB
+## IconTexture: Interface\Icons\INV_Misc_Head_Human_01
+
+## Notes: Keeps track of your characters: gold, rested XP, professions and recipes, cooldowns, reputation, auctions, and who has each item in bags, bank or mail.
+## Notes-esES: Lleva la cuenta de tus personajes: oro, descanso, profesiones y recetas, esperas, reputacion, subastas y quien tiene cada objeto en bolsas, banco o correo.
+## Notes-esMX: Lleva la cuenta de tus personajes: oro, descanso, profesiones y recetas, esperas, reputacion, subastas y quien tiene cada objeto en bolsas, banco o correo.
+## Notes-deDE: Behalte deine Charaktere im Blick: Gold, Erholung, Berufe und Rezepte, Abklingzeiten, Ruf, Auktionen und wer welchen Gegenstand in Taschen, Bank oder Post hat.
+## Notes-frFR: Garde un oeil sur vos personnages : or, repos, metiers et recettes, temps de recharge, reputation, encheres, et qui possede chaque objet dans les sacs, la banque ou le courrier.
+## Notes-itIT: Tiene d'occhio i tuoi personaggi: oro, riposo, professioni e ricette, tempi di recupero, reputazione, aste e chi ha ogni oggetto in borse, banca o posta.
+## Notes-ptBR: Acompanha seus personagens: ouro, descanso, profissoes e receitas, recargas, reputacao, leiloes e quem tem cada item nas bolsas, no banco ou no correio.
+## Notes-ruRU: Следит за вашими персонажами: золото, отдых, профессии и рецепты, восстановление, репутация, аукционы и у кого какой предмет в сумках, банке или на почте.
+## Notes-koKR: 캐릭터들을 한눈에: 골드, 휴식 경험치, 전문 기술과 제조법, 재사용 대기시간, 평판, 경매, 그리고 가방·은행·우편 속 아이템 보유 현황.
+## Notes-zhCN: 记录你的所有角色：金币、休息经验、专业与配方、冷却、声望、拍卖，以及背包、银行或邮件中谁拥有哪件物品。
+## Notes-zhTW: 記錄你的所有角色：金幣、休息經驗、專業與配方、冷卻、聲望、拍賣，以及背包、銀行或郵件中誰擁有哪件物品。
+
+Locales.lua
+Themes.lua
+AltsForever.lua
