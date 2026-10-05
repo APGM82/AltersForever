@@ -1,4 +1,4 @@
-# Alts Forever
+# Alters Forever
 
 A light alt manager for World of Warcraft: Forever. I wanted to know what my
 other characters were carrying without logging into each of them, so I wrote
@@ -47,7 +47,7 @@ in `Themes.lua` if you want to make your own.
 | `/alts theme horde` | Change the colours (`green`, `blue`, `purple`, `grey`, `classic`, `alliance`, `horde`, `blizzard`) |
 | `/alts scale 1.2` | Window size, from 0.6 to 1.6 |
 
-`/af` works the same as `/alts`.
+`/af` and `/alters` work the same as `/alts`.
 
 ## Languages
 
@@ -56,7 +56,7 @@ Simplified and Traditional Chinese.
 
 ## Installation
 
-Put the `AltsForever` folder in `World of Warcraft\_classic_beta_\Interface\AddOns\`
+Put the `AltersForever` folder in `World of Warcraft\_classic_beta_\Interface\AddOns\`
 and restart the game. Made for Forever 1.60.1 (`Interface: 16001`).
 
 ## License

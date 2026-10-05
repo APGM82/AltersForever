@@ -1,8 +1,8 @@
--- Alts Forever
+-- Alters Forever
 
 local ADDON, ns = ...
 
-local PREFIX = "Alts Forever: "
+local PREFIX = "Alters Forever: "
 local ROW_HEIGHT = 20
 local ROWS = 16
 local REST_PER_HOUR = 0.05 / 8      -- de barra, descansando; fuera, la cuarta parte
@@ -193,7 +193,7 @@ end
 
 local function TitleText()
     local c = theme.title
-    return format("|cff%02x%02x%02xAlts Forever|r", c[1] * 255, c[2] * 255, c[3] * 255)
+    return format("|cff%02x%02x%02xAlters Forever|r", c[1] * 255, c[2] * 255, c[3] * 255)
 end
 
 local RefreshWindow
@@ -1278,7 +1278,7 @@ local function CharacterDialog(key, text, action, forget)
         end,
         OnAlt = function(_, guid)
             local c = db.chars[guid]
-            if c then StaticPopup_Show("ALTSFOREVER_FORGET", c.name, nil, guid) end
+            if c then StaticPopup_Show("ALTERSFOREVER_FORGET", c.name, nil, guid) end
         end,
         timeout = 0,
         whileDead = true,
@@ -1286,12 +1286,12 @@ local function CharacterDialog(key, text, action, forget)
     }
 end
 
-CharacterDialog("ALTSFOREVER_HIDE", L["Hide %s from the lists and tooltips? Nothing is deleted."], L["Hide"], true)
-CharacterDialog("ALTSFOREVER_SHOW", L["Show %s again?"], L["Show"], true)
-CharacterDialog("ALTSFOREVER_HIDE_ME", L["Hide %s from the lists and tooltips? Nothing is deleted."], L["Hide"], false)
-CharacterDialog("ALTSFOREVER_SHOW_ME", L["Show %s again?"], L["Show"], false)
+CharacterDialog("ALTERSFOREVER_HIDE", L["Hide %s from the lists and tooltips? Nothing is deleted."], L["Hide"], true)
+CharacterDialog("ALTERSFOREVER_SHOW", L["Show %s again?"], L["Show"], true)
+CharacterDialog("ALTERSFOREVER_HIDE_ME", L["Hide %s from the lists and tooltips? Nothing is deleted."], L["Hide"], false)
+CharacterDialog("ALTERSFOREVER_SHOW_ME", L["Show %s again?"], L["Show"], false)
 
-StaticPopupDialogs.ALTSFOREVER_FORGET = {
+StaticPopupDialogs.ALTERSFOREVER_FORGET = {
     text = L["Forget the saved data of %s?"],
     button1 = YES,
     button2 = NO,
@@ -2276,7 +2276,7 @@ function RefreshWindow()
 end
 
 local function BuildWindow()
-    window = CreateFrame("Frame", "AltsForeverWindow", UIParent)
+    window = CreateFrame("Frame", "AltersForeverWindow", UIParent)
     window:SetSize(740, 106 + 18 + ROWS * ROW_HEIGHT + 30)
     window:SetScale(db.options.scale)
     local point = db.options.point
@@ -2298,7 +2298,7 @@ local function BuildWindow()
     end)
     window:SetScript("OnShow", RefreshWindow)
     window:Hide()
-    table.insert(UISpecialFrames, "AltsForeverWindow")   -- se cierra con Esc
+    table.insert(UISpecialFrames, "AltersForeverWindow")   -- se cierra con Esc
 
     Border(window, 2)
     local face = Skin(window:CreateTexture(nil, "BORDER"), "background")
@@ -2373,7 +2373,7 @@ local function BuildWindow()
         if mouse == "RightButton" then
             for guid, other in pairs(db.chars) do
                 if other == c then
-                    local key = (c.hidden and "ALTSFOREVER_SHOW" or "ALTSFOREVER_HIDE") .. (c == me and "_ME" or "")
+                    local key = (c.hidden and "ALTERSFOREVER_SHOW" or "ALTERSFOREVER_HIDE") .. (c == me and "_ME" or "")
                     StaticPopup_Show(key, c.name, nil, guid)
                 end
             end
@@ -2555,7 +2555,7 @@ local function FollowCursor()
 end
 
 local function BuildMinimapButton()
-    minimapButton = CreateFrame("Button", "AltsForeverMinimapButton", Minimap)
+    minimapButton = CreateFrame("Button", "AltersForeverMinimapButton", Minimap)
     minimapButton:SetSize(31, 31)
     minimapButton:SetFrameStrata("MEDIUM")
     minimapButton:SetFrameLevel(8)
@@ -2588,7 +2588,7 @@ local function BuildMinimapButton()
     end)
     minimapButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine("Alts Forever", theme.title[1], theme.title[2], theme.title[3])
+        GameTooltip:AddLine("Alters Forever", theme.title[1], theme.title[2], theme.title[3])
         GameTooltip:AddLine(L["Click: open the window"], 1, 1, 1)
         GameTooltip:AddLine(L["Drag: move the button"], 0.8, 0.8, 0.8)
         GameTooltip:Show()
@@ -2769,8 +2769,8 @@ loader:SetScript("OnEvent", function(self, event, ...)
         return
     end
 
-    AltsForeverDB = AltsForeverDB or {}
-    db = AltsForeverDB
+    AltersForeverDB = AltersForeverDB or {}
+    db = AltersForeverDB
     db.chars = db.chars or {}
     db.names = db.names or {}
     db.recipes = db.recipes or {}
@@ -2834,7 +2834,8 @@ loader:SetScript("OnEvent", function(self, event, ...)
     end
     C_Timer.NewTicker(60, CheckCooldowns)
 
-    SLASH_ALTSFOREVER1 = "/alts"
-    SLASH_ALTSFOREVER2 = "/af"
-    SlashCmdList.ALTSFOREVER = HandleSlash
+    SLASH_ALTERSFOREVER1 = "/alts"
+    SLASH_ALTERSFOREVER2 = "/af"
+    SLASH_ALTERSFOREVER3 = "/alters"
+    SlashCmdList.ALTERSFOREVER = HandleSlash
 end)

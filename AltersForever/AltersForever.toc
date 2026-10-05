@@ -1,7 +1,7 @@
 ## Interface: 16001
-## Title: |cff66cc99Alts Forever|r
+## Title: |cff66cc99Alters Forever|r
 ## Version: 1.00
-## SavedVariables: AltsForeverDB
+## SavedVariables: AltersForeverDB
 ## IconTexture: Interface\Icons\INV_Misc_Head_Human_01
 
 ## Notes: Keeps track of your characters: gold, rested XP, professions and recipes, cooldowns, reputation, auctions, and who has each item in bags, bank or mail.
@@ -18,4 +18,4 @@
 
 Locales.lua
 Themes.lua
-AltsForever.lua
+AltersForever.lua
