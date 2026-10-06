@@ -657,6 +657,11 @@ local function ScanLockouts()
     me.lockoutsSeen = time()
 end
 
+-- C_Timer no acepta funciones del juego directamente
+local function AskLockouts()
+    if RequestRaidInfo then RequestRaidInfo() end
+end
+
 local function ScanCurrencies()
     local api = C_CurrencyInfo
     if not api or not api.GetCurrencyListSize then return end
@@ -775,11 +780,40 @@ local function ReadTalentNodes(configID, treeID)
                 local targets = {}
                 for _, edge in ipairs(node.visibleEdges or {}) do table.insert(targets, edge.targetNode) end
                 table.insert(nodes, { id = nodeID, x = node.posX, y = node.posY, rank = node.currentRank or 0,
-                    max = node.maxRanks or 1, spell = spell, targets = targets })
+                    max = node.maxRanks or 1, spell = spell, entry = entryID, targets = targets })
             end
         end
     end
     return nodes
+end
+
+-- fila y columna dentro del arbol; las aristas van del requisito al que lo necesita
+local function PlaceTalents(nodes, step, ranks)
+    local left, top = math.huge, math.huge
+    for _, node in ipairs(nodes) do
+        left, top = math.min(left, node.x), math.min(top, node.y)
+    end
+    local tree, byID, spent = {}, {}, 0
+    for _, node in ipairs(nodes) do
+        local talent = { id = node.id, spell = node.spell, entry = node.entry, max = node.max,
+            icon = C_Spell.GetSpellTexture(node.spell) or 134400,
+            tier = math.floor((node.y - top) / step + 0.5) + 1,
+            col = math.floor((node.x - left) / step + 0.5) + 1 }
+        table.insert(tree, talent)
+        byID[node.id] = talent
+        ranks[node.id] = node.rank
+        spent = spent + node.rank
+    end
+    for _, node in ipairs(nodes) do
+        for _, target in ipairs(node.targets) do
+            if byID[target] then byID[target].req = node.id end
+        end
+    end
+    table.sort(tree, function(a, b)
+        if a.tier ~= b.tier then return a.tier < b.tier end
+        return a.col < b.col
+    end)
+    return tree, spent
 end
 
 local function ScanTalents()
@@ -802,41 +836,45 @@ local function ScanTalents()
     local trees, ranks, spent = {}, {}, {}
     for t, group in ipairs(groups) do
         table.sort(group, function(a, b) return a.y < b.y end)
-        local kept, left = {}, math.huge
+        local kept = {}
         for i, node in ipairs(group) do
             -- algun nodo interno sale suelto muy por debajo
             if i > 1 and node.y - group[i - 1].y > 3 * TALENT_STEP then break end
             table.insert(kept, node)
-            left = math.min(left, node.x)
         end
-        local top = kept[1].y
-        local tree, byID = {}, {}
-        spent[t] = 0
-        for _, node in ipairs(kept) do
-            local talent = { id = node.id, spell = node.spell, max = node.max,
-                icon = C_Spell.GetSpellTexture(node.spell) or 134400,
-                tier = math.floor((node.y - top) / TALENT_STEP + 0.5) + 1,
-                col = math.floor((node.x - left) / TALENT_STEP + 0.5) + 1 }
-            table.insert(tree, talent)
-            byID[node.id] = talent
-            ranks[node.id] = node.rank
-            spent[t] = spent[t] + node.rank
-        end
-        for _, node in ipairs(kept) do
-            for _, target in ipairs(node.targets) do
-                if byID[target] then byID[target].req = node.id end
-            end
-        end
-        table.sort(tree, function(a, b)
-            if a.tier ~= b.tier then return a.tier < b.tier end
-            return a.col < b.col
-        end)
-        trees[t] = tree
+        trees[t], spent[t] = PlaceTalents(kept, TALENT_STEP, ranks)
     end
 
     local currency = C_Traits.GetTreeCurrencyInfo(configID, treeID, false)
     db.talents[me.class] = trees
     me.talents = { ranks = ranks, spent = spent, free = currency and currency[1] and currency[1].quantity or 0, seen = time() }
+end
+
+-- arboles de legado: otra configuracion C_Traits, con una moneda comun a los tres
+local LEGACY_SYSTEM, LEGACY_STEP = 45, 750
+-- en el orden de la ventana de legado, con el nombre que les da el juego
+local LEGACY_TREES = { { 1189, "LEGACY_TREE_PROGRESSION" }, { 1188, "LEGACY_TREE_ADVENTURE" }, { 1187, "LEGACY_TREE_PROFESSIONS" } }
+
+local function ScanLegacy()
+    if not (C_Traits and C_Traits.GetConfigIDBySystemID) then return end
+    local configID = C_Traits.GetConfigIDBySystemID(LEGACY_SYSTEM)
+    if not configID then return end
+    local trees, ranks, spent, currency = {}, {}, {}, nil
+    for t, entry in ipairs(LEGACY_TREES) do
+        local nodes = {}
+        for _, node in ipairs(ReadTalentNodes(configID, entry[1])) do
+            -- nodos de relleno sin hechizo de verdad
+            if C_Spell.GetSpellName(node.spell) ~= UNKNOWN then table.insert(nodes, node) end
+        end
+        if #nodes == 0 then return end
+        trees[t], spent[t] = PlaceTalents(nodes, LEGACY_STEP, ranks)
+        currency = currency or C_Traits.GetTreeCurrencyInfo(configID, entry[1], false)
+    end
+    -- el bote es de la cuenta; cada pj gasta el suyo por su cuenta
+    currency = currency and currency[1] or {}
+    db.legacy = trees
+    db.legacyPoints = currency.maxQuantity or db.legacyPoints
+    me.legacy = { ranks = ranks, spent = spent, seen = time() }
 end
 
 local talentsQueued
@@ -846,6 +884,7 @@ local function QueueTalents()
     C_Timer.After(1, function()
         talentsQueued = false
         RunScan(ScanTalents)
+        RunScan(ScanLegacy)
     end)
 end
 
@@ -1694,6 +1733,7 @@ local InfoRows
 local SECTIONS = {
     { "items",      "Items",      "Interface\\Icons\\INV_Misc_Bag_08" },
     { "talents",    "Talents",    "Interface\\Icons\\Ability_Marksmanship" },
+    { "legacy",     "Legacy",     "Interface\\Icons\\achievement_guildperk_everybodysfriend" },
     { "reps",       "Reputation", "Interface\\Icons\\INV_Shield_06" },
     { "skills",     "Skills",     "Interface\\Icons\\INV_Misc_Book_09" },
     { "pvp",        "PvE/PvP",    "Interface\\Icons\\Ability_DualWield" },
@@ -1831,19 +1871,20 @@ local function BuildCharacterPage(page)
         table.insert(page.sectionButtons, btn)
     end
 
-    -- el mismo dibujo que el boton de talentos de la barra
-    local micro = TalentMicroButton or PlayerSpellsMicroButton
-    local source = micro and micro.GetNormalTexture and micro:GetNormalTexture()
-    local talentsIcon = page.sectionButtons[2].icon
-    if source then
+    -- el mismo dibujo que los botones de la barra
+    local function CopyMicroIcon(micro, icon)
+        local source = micro and micro.GetNormalTexture and micro:GetNormalTexture()
+        if not source then return end
         local atlas = source:GetAtlas()
         if atlas then
-            talentsIcon:SetAtlas(atlas)
+            icon:SetAtlas(atlas)
         elseif source:GetTexture() then
-            talentsIcon:SetTexture(source:GetTexture())
-            talentsIcon:SetTexCoord(source:GetTexCoord())
+            icon:SetTexture(source:GetTexture())
+            icon:SetTexCoord(source:GetTexCoord())
         end
     end
+    CopyMicroIcon(TalentMicroButton or PlayerSpellsMicroButton, page.sectionButtons[2].icon)
+    CopyMicroIcon(LegacyMicroButton, page.sectionButtons[3].icon)
 
     local info = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
     info:SetPoint("TOPLEFT", 16, -30)
@@ -2073,114 +2114,134 @@ local function BuildCharacterPage(page)
     page.info = infoTable
 
     -- tres arboles de 4 columnas, como la ventana de talentos clasica
+    -- source(c) da los arboles, los datos del pj y los nombres
     local TALENT_ICON, TALENT_X, TALENT_Y, TREE_WIDTH = 32, 50, 41, 236
-    local talents = CreateFrame("Frame", nil, page)
-    talents:SetPoint("TOPLEFT", 16, -64)
-    talents:SetPoint("BOTTOMRIGHT", -16, 28)
-    talents.trees = {}
-    for t = 1, 3 do
-        local tree = CreateFrame("Frame", nil, talents)
-        tree:SetPoint("TOPLEFT", (t - 1) * TREE_WIDTH, 0)
-        tree:SetPoint("BOTTOM")
-        tree:SetWidth(TREE_WIDTH - 8)
-        Border(tree, 1)
-        tree.title = Skin(tree:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "header")
-        tree.title:SetPoint("TOP", 0, -6)
-        tree.slots, tree.lines = {}, {}
-        talents.trees[t] = tree
-    end
+    local function TreePanel(source)
+        local talents = CreateFrame("Frame", nil, page)
+        talents:SetPoint("TOPLEFT", 16, -64)
+        talents:SetPoint("BOTTOMRIGHT", -16, 28)
+        talents.trees = {}
+        for t = 1, 3 do
+            local tree = CreateFrame("Frame", nil, talents)
+            tree:SetPoint("TOPLEFT", (t - 1) * TREE_WIDTH, 0)
+            tree:SetPoint("BOTTOM")
+            tree:SetWidth(TREE_WIDTH - 8)
+            Border(tree, 1)
+            tree.title = Skin(tree:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "header")
+            tree.title:SetPoint("TOP", 0, -6)
+            tree.slots, tree.lines = {}, {}
+            talents.trees[t] = tree
+        end
 
-    local function TalentSlot(tree, i)
-        local slot = tree.slots[i]
-        if slot then return slot end
-        slot = MakeSlot(tree, TALENT_ICON)
-        slot.count:SetFontObject("NumberFontNormalSmall")
-        slot.count:SetPoint("BOTTOMRIGHT", 2, -2)
-        slot:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetSpellByID(self.spell)
-            GameTooltip:AddLine(format(L["Rank %d/%d"], self.rank, self.max), 1, 1, 1)
-            GameTooltip:Show()
-        end)
-        slot:SetScript("OnClick", nil)
-        tree.slots[i] = slot
-        return slot
-    end
-
-    local function TalentLine(tree, i)
-        local line = tree.lines[i]
-        if line then return line end
-        line = tree:CreateLine(nil, "ARTWORK")
-        line:SetThickness(2)
-        tree.lines[i] = line
-        return line
-    end
-
-    local talentsEmpty = Skin(talents:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "dim")
-    talentsEmpty:SetPoint("TOP", 0, -86)
-    talentsEmpty:SetWidth(520)
-    talentsEmpty:SetText(L["Log in with this character once to read this."])
-    local talentsFooter = Skin(talents:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "dim")
-    talentsFooter:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", 16, 14)
-
-    talents.Update = function(c)
-        local data = c.talents
-        local layout = data and db.talents[c.class]
-        talentsEmpty:SetShown(not layout)
-        talentsFooter:SetShown(layout ~= nil)
-        local names = ns.trees[GetLocale()] or ns.trees.enUS
-        names = names[c.class] or {}
-        for t, tree in ipairs(talents.trees) do
-            local list = layout and layout[t]
-            tree:SetShown(list ~= nil)
-            for _, slot in ipairs(tree.slots) do slot:Hide() end
-            for _, line in ipairs(tree.lines) do line:Hide() end
-            if list then
-                tree.title:SetText(format("%s (%d)", names[t] or (L["Tree"] .. " " .. t), data.spent[t] or 0))
-                local left = (TREE_WIDTH - 8 - 3 * TALENT_X - TALENT_ICON) / 2
-                local byID, lines = {}, 0
-                for i, talent in ipairs(list) do
-                    local slot = TalentSlot(tree, i)
-                    local rank = data.ranks[talent.id] or 0
-                    slot:SetPoint("TOPLEFT", left + (talent.col - 1) * TALENT_X, -26 - (talent.tier - 1) * TALENT_Y)
-                    slot.icon:SetTexture(talent.icon)
-                    slot.icon:SetDesaturated(rank == 0)
-                    slot.quality:Hide()
-                    slot.spell, slot.rank, slot.max = talent.spell, rank, talent.max
-                    local color = rank == 0 and "|cff999999" or (rank < talent.max and "|cff40ff40" or "|cffffd100")
-                    slot.count:SetText(color .. rank .. "/" .. talent.max .. "|r")
-                    slot:Show()
-                    byID[talent.id] = { slot = slot, talent = talent, rank = rank }
+        local function TalentSlot(tree, i)
+            local slot = tree.slots[i]
+            if slot then return slot end
+            slot = MakeSlot(tree, TALENT_ICON)
+            slot.count:SetFontObject("NumberFontNormalSmall")
+            slot.count:SetPoint("BOTTOMRIGHT", 2, -2)
+            slot:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                -- con el rango del pj; sin puntos, lo que da el primero
+                if self.entry and GameTooltip.SetTraitEntry then
+                    GameTooltip:SetTraitEntry(self.entry, math.max(self.rank, 1))
+                else
+                    GameTooltip:SetSpellByID(self.spell)
                 end
-                -- del requisito al que lo necesita, dorada si esta completo
-                for _, entry in pairs(byID) do
-                    local req = entry.talent.req and byID[entry.talent.req]
-                    if req then
-                        lines = lines + 1
-                        local line = TalentLine(tree, lines)
-                        if req.talent.tier == entry.talent.tier then
-                            line:SetStartPoint(req.talent.col < entry.talent.col and "RIGHT" or "LEFT", req.slot)
-                            line:SetEndPoint(req.talent.col < entry.talent.col and "LEFT" or "RIGHT", entry.slot)
-                        else
-                            line:SetStartPoint("BOTTOM", req.slot)
-                            line:SetEndPoint("TOP", entry.slot)
+                GameTooltip:AddLine(format(L["Rank %d/%d"], self.rank, self.max), 1, 1, 1)
+                GameTooltip:Show()
+            end)
+            slot:SetScript("OnClick", nil)
+            tree.slots[i] = slot
+            return slot
+        end
+
+        local function TalentLine(tree, i)
+            local line = tree.lines[i]
+            if line then return line end
+            line = tree:CreateLine(nil, "ARTWORK")
+            line:SetThickness(2)
+            tree.lines[i] = line
+            return line
+        end
+
+        local talentsEmpty = Skin(talents:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "dim")
+        talentsEmpty:SetPoint("TOP", 0, -86)
+        talentsEmpty:SetWidth(520)
+        talentsEmpty:SetText(L["Log in with this character once to read this."])
+        local talentsFooter = Skin(talents:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "dim")
+        talentsFooter:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", 16, 14)
+
+        talents.Update = function(c)
+            local layout, data, names, free, total = source(c)
+            talentsEmpty:SetShown(not layout)
+            talentsFooter:SetShown(layout ~= nil)
+            for t, tree in ipairs(talents.trees) do
+                local list = layout and layout[t]
+                tree:SetShown(list ~= nil)
+                for _, slot in ipairs(tree.slots) do slot:Hide() end
+                for _, line in ipairs(tree.lines) do line:Hide() end
+                if list then
+                    tree.title:SetText(format("%s (%d)", names[t] or (L["Tree"] .. " " .. t), data.spent[t] or 0))
+                    local left = (TREE_WIDTH - 8 - 3 * TALENT_X - TALENT_ICON) / 2
+                    local byID, lines = {}, 0
+                    for i, talent in ipairs(list) do
+                        local slot = TalentSlot(tree, i)
+                        local rank = data.ranks[talent.id] or 0
+                        slot:SetPoint("TOPLEFT", left + (talent.col - 1) * TALENT_X, -26 - (talent.tier - 1) * TALENT_Y)
+                        slot.icon:SetTexture(talent.icon)
+                        slot.icon:SetDesaturated(rank == 0)
+                        slot.quality:Hide()
+                        slot.spell, slot.entry, slot.rank, slot.max = talent.spell, talent.entry, rank, talent.max
+                        local color = rank == 0 and "|cff999999" or (rank < talent.max and "|cff40ff40" or "|cffffd100")
+                        slot.count:SetText(color .. rank .. "/" .. talent.max .. "|r")
+                        slot:Show()
+                        byID[talent.id] = { slot = slot, talent = talent, rank = rank }
+                    end
+                    -- del requisito al que lo necesita, dorada si esta completo
+                    for _, entry in pairs(byID) do
+                        local req = entry.talent.req and byID[entry.talent.req]
+                        if req then
+                            lines = lines + 1
+                            local line = TalentLine(tree, lines)
+                            if req.talent.tier == entry.talent.tier then
+                                line:SetStartPoint(req.talent.col < entry.talent.col and "RIGHT" or "LEFT", req.slot)
+                                line:SetEndPoint(req.talent.col < entry.talent.col and "LEFT" or "RIGHT", entry.slot)
+                            else
+                                line:SetStartPoint("BOTTOM", req.slot)
+                                line:SetEndPoint("TOP", entry.slot)
+                            end
+                            if req.rank >= req.talent.max then
+                                line:SetColorTexture(1, 0.82, 0, 1)
+                            else
+                                line:SetColorTexture(0.4, 0.4, 0.4, 1)
+                            end
+                            line:Show()
                         end
-                        if req.rank >= req.talent.max then
-                            line:SetColorTexture(1, 0.82, 0, 1)
-                        else
-                            line:SetColorTexture(0.4, 0.4, 0.4, 1)
-                        end
-                        line:Show()
                     end
                 end
             end
+            if layout then
+                local text = total and format(L["Unspent points: %d of %d"], free, total) or format(L["Unspent points: %d"], free or 0)
+                if c ~= me and data.seen then text = text .. "    " .. format(L["(seen %s ago)"], Duration(time() - data.seen)) end
+                talentsFooter:SetText(text)
+            end
         end
-        if layout then
-            local text = format(L["Unspent points: %d"], data.free or 0)
-            if c ~= me and data.seen then text = text .. "    " .. format(L["(seen %s ago)"], Duration(time() - data.seen)) end
-            talentsFooter:SetText(text)
-        end
+        return talents
     end
+
+    local talents = TreePanel(function(c)
+        local data = c.talents
+        local names = ns.trees[GetLocale()] or ns.trees.enUS
+        return data and db.talents[c.class], data, names[c.class] or {}, data and data.free
+    end)
+    local legacy = TreePanel(function(c)
+        local names = {}
+        for t, entry in ipairs(LEGACY_TREES) do names[t] = _G[entry[2]] end
+        local data, used = c.legacy, 0
+        for _, points in ipairs(data and data.spent or {}) do used = used + points end
+        local total = db.legacyPoints or used
+        return data and db.legacy, data, names, math.max(total - used, 0), total
+    end)
     page.talents = talents
 
     page.Update = function()
@@ -2202,8 +2263,10 @@ local function BuildCharacterPage(page)
         local itemsShown = window.section == "items"
         local auctions = itemsShown and window.filter == "ah"
         local talentsShown = window.section == "talents"
+        local legacyShown = window.section == "legacy"
         talents:SetShown(talentsShown)
-        if talentsShown then
+        legacy:SetShown(legacyShown)
+        if talentsShown or legacyShown then
             for _, btn in ipairs(page.filterButtons) do btn:Hide() end
             search:Hide()
             footer:Hide()
@@ -2212,7 +2275,7 @@ local function BuildCharacterPage(page)
             doll:Hide()
             bagRow:Hide()
             bagHint:Hide()
-            talents.Update(c)
+            if talentsShown then talents.Update(c) else legacy.Update(c) end
             return
         end
         for _, btn in ipairs(page.filterButtons) do btn:SetShown(itemsShown) end
@@ -2957,7 +3020,7 @@ end
 function events.CURRENCY_DISPLAY_UPDATE() ScanLater(ScanCurrencies) end
 function events.PLAYER_PVP_KILLS_CHANGED() ScanPvP() end
 function events.UPDATE_INSTANCE_INFO() ScanLockouts() end
-function events.BOSS_KILL() C_Timer.After(2, RequestRaidInfo) end
+function events.BOSS_KILL() C_Timer.After(2, AskLockouts) end
 function events.UNIT_STATS(unit) if unit == "player" then QueueStats() end end
 events.UNIT_RESISTANCES = events.UNIT_STATS
 events.UNIT_MAXHEALTH = events.UNIT_STATS
@@ -3121,9 +3184,9 @@ loader:SetScript("OnEvent", function(self, event, ...)
     C_Timer.After(8, WarnMail)
     C_Timer.After(9, WarnAuctions)
     C_Timer.After(10, CheckCooldowns)
-    C_Timer.After(11, RequestRaidInfo)
+    C_Timer.After(11, AskLockouts)
     -- de una en una, separadas
-    for i, scan in ipairs({ ScanReputations, ScanSkills, ScanPvP, ScanCurrencies, ScanStats, ScanTalents }) do
+    for i, scan in ipairs({ ScanReputations, ScanSkills, ScanPvP, ScanCurrencies, ScanStats, ScanTalents, ScanLegacy }) do
         C_Timer.After(2 + i, function() RunScan(scan) end)
     end
     C_Timer.NewTicker(60, CheckCooldowns)
