@@ -15,8 +15,11 @@ each once per character.
 The Characters tab lists everyone with their gold and rested XP, and the
 rested amount keeps going up while a character is logged out, the same way the
 game does it. Click a character to open its page, which works like the
-in-game character window: items, reputation, skills, PvP, currency and stats.
-Items can be shown as a bag-style grid, filtered by bags, bank, mail, equipped
+in-game character window. The icons next to the name switch between items,
+talents, legacy trees, reputation, skills, PvE/PvP, currency, attributes and
+the numbers from the game's statistics window. Talents and legacy trees show
+the points each character has spent, and PvE/PvP starts with the instances and
+world bosses it is saved to. Items can be shown as a bag-style grid, filtered by bags, bank, mail, equipped
 or auction. Equipped gear is laid out like the paper doll. Hovering one of the
 bags in the row under the grid lights up what's inside it.
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.10
+
+- Talents: each character's talent trees, with the points spent and still free.
+- Legacy: the legacy trees of every character and the shared pool of legacy points.
+- PvE/PvP now starts with the saved instances and world bosses, with their reset time.
+- Statistics: the numbers from the game's statistics window (gold looted, auctions posted and so on). The old Stats section is now called Attributes.
+- The sections of the character page are a row of icons next to the name instead of text buttons.
+
 ## 1.00
 
 First release.
