@@ -777,6 +777,17 @@ local function ScanStatistics()
     me.statisticsSeen = time()
 end
 
+-- al salir no se puede: el botin ya esta apagado y GetStatistic tumba el cliente
+local statisticsQueued
+local function QueueStatistics()
+    if statisticsQueued then return end
+    statisticsQueued = true
+    C_Timer.After(10, function()
+        statisticsQueued = false
+        RunScan(ScanStatistics)
+    end)
+end
+
 local statsQueued
 local function QueueStats()
     if statsQueued then return end
@@ -3075,6 +3086,7 @@ function events.TRAIT_CONFIG_UPDATED() QueueTalents() end
 events.PLAYER_TALENT_UPDATE = events.TRAIT_CONFIG_UPDATED
 events.CHARACTER_POINTS_CHANGED = events.TRAIT_CONFIG_UPDATED
 function events.UPDATE_FACTION() ScanLater(ScanReputations) end
+function events.CRITERIA_UPDATE() QueueStatistics() end
 function events.TRADE_SKILL_SHOW() C_Timer.After(0.3, ScanRecipes) end
 function events.TRADE_SKILL_LIST_UPDATE()
     if scanTries == 0 then C_Timer.After(0.3, ScanRecipes) end
@@ -3141,7 +3153,6 @@ end
 function events.GET_ITEM_INFO_RECEIVED() end
 
 function events.PLAYER_LOGOUT()
-    pcall(ScanStatistics)
     if me.playedAt then
         me.played = Played(me)
         me.playedAt = nil
