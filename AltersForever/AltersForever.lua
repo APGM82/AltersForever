@@ -754,6 +754,29 @@ local function ScanStats()
     me.stats = list
 end
 
+-- las de la ventana de estadisticas del juego; de cada pj solo las que tienen valor
+local function ScanStatistics()
+    if not GetStatisticsCategoryList then return end
+    local categories, values = {}, {}
+    for _, id in ipairs(GetStatisticsCategoryList() or {}) do
+        local name, parent = GetCategoryInfo(id)
+        local category = { id = id, name = name, parent = parent, stats = {} }
+        for i = 1, GetCategoryNumAchievements(id, true) or 0 do
+            local statID, statName = GetAchievementInfo(id, i)
+            if statID then
+                table.insert(category.stats, statID)
+                db.statNames[statID] = statName
+                local value = GetStatistic(statID)
+                if value and value ~= "--" and strtrim(value) ~= "" then values[statID] = value end
+            end
+        end
+        table.insert(categories, category)
+    end
+    db.statCategories = categories
+    me.statistics = values
+    me.statisticsSeen = time()
+end
+
 local statsQueued
 local function QueueStats()
     if statsQueued then return end
@@ -1738,7 +1761,8 @@ local SECTIONS = {
     { "skills",     "Skills",     "Interface\\Icons\\INV_Misc_Book_09" },
     { "pvp",        "PvE/PvP",    "Interface\\Icons\\Ability_DualWield" },
     { "currencies", "Currency",   "Interface\\Icons\\INV_Misc_Coin_01" },
-    { "stats",      "Statistics", "Interface\\Icons\\INV_Scroll_03" },
+    { "stats",      "Stats",      "Interface\\Icons\\Spell_Nature_Strength" },
+    { "statistics", "Statistics", "Interface\\Icons\\INV_Scroll_03" },
 }
 
 function InfoRows(c, section)
@@ -1796,6 +1820,28 @@ function InfoRows(c, section)
             table.insert(rows, { header = L["Honour"] })
             if pvp.honor then table.insert(rows, { L["Honour"], pvp.honor }) end
             if pvp.honorLevel then table.insert(rows, { L["Honour level"], pvp.honorLevel }) end
+        end
+    elseif section == "statistics" and c.statistics then
+        local values, names, shown = c.statistics, {}, {}
+        for _, category in ipairs(db.statCategories or {}) do names[category.id] = category end
+        for _, category in ipairs(db.statCategories or {}) do
+            local list = {}
+            for _, id in ipairs(category.stats) do
+                if values[id] then table.insert(list, { db.statNames[id] or ("#" .. id), values[id] }) end
+            end
+            if #list > 0 then
+                -- la categoria madre aunque no tenga valores propios
+                local parent = names[category.parent]
+                if parent and not shown[parent.id] then
+                    table.insert(rows, { header = parent.name })
+                    shown[parent.id] = true
+                end
+                if not shown[category.id] then
+                    table.insert(rows, { header = (parent and "   " or "") .. category.name })
+                    shown[category.id] = true
+                end
+                for _, row in ipairs(list) do table.insert(rows, row) end
+            end
         end
     elseif section == "stats" then
         rows = c.stats or rows
@@ -3095,6 +3141,7 @@ end
 function events.GET_ITEM_INFO_RECEIVED() end
 
 function events.PLAYER_LOGOUT()
+    pcall(ScanStatistics)
     if me.playedAt then
         me.played = Played(me)
         me.playedAt = nil
@@ -3132,6 +3179,7 @@ loader:SetScript("OnEvent", function(self, event, ...)
     db.skillLines = db.skillLines or {}
     db.factions = db.factions or {}
     db.talents = db.talents or {}
+    db.statNames = db.statNames or {}
     db.probe = nil
     for _, c in pairs(db.chars) do
         for _, prof in ipairs(c.profs or {}) do
@@ -3186,7 +3234,7 @@ loader:SetScript("OnEvent", function(self, event, ...)
     C_Timer.After(10, CheckCooldowns)
     C_Timer.After(11, AskLockouts)
     -- de una en una, separadas
-    for i, scan in ipairs({ ScanReputations, ScanSkills, ScanPvP, ScanCurrencies, ScanStats, ScanTalents, ScanLegacy }) do
+    for i, scan in ipairs({ ScanReputations, ScanSkills, ScanPvP, ScanCurrencies, ScanStats, ScanTalents, ScanLegacy, ScanStatistics }) do
         C_Timer.After(2 + i, function() RunScan(scan) end)
     end
     C_Timer.NewTicker(60, CheckCooldowns)
