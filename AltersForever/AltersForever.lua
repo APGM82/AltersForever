@@ -1692,12 +1692,13 @@ end
 local InfoRows
 
 local SECTIONS = {
-    { "items",      "Items" },
-    { "reps",       "Reputation" },
-    { "skills",     "Skills" },
-    { "pvp",        "PvE/PvP" },
-    { "currencies", "Currency" },
-    { "stats",      "Statistics" },
+    { "items",      "Items",      "Interface\\Icons\\INV_Misc_Bag_08" },
+    { "talents",    "Talents",    "Interface\\Icons\\Ability_Marksmanship" },
+    { "reps",       "Reputation", "Interface\\Icons\\INV_Shield_06" },
+    { "skills",     "Skills",     "Interface\\Icons\\INV_Misc_Book_09" },
+    { "pvp",        "PvE/PvP",    "Interface\\Icons\\Ability_DualWield" },
+    { "currencies", "Currency",   "Interface\\Icons\\INV_Misc_Coin_01" },
+    { "stats",      "Statistics", "Interface\\Icons\\INV_Scroll_03" },
 }
 
 function InfoRows(c, section)
@@ -1792,59 +1793,62 @@ local function BuildCharacterPage(page)
     local back = MakeButton(page, 100, L["Back"], function() window.ShowTab(window.lastTab or 1) end)
     back:SetPoint("TOPRIGHT", -12, -6)
 
-    -- talentos con la diana junto al nombre; otro clic vuelve a objetos
-    -- borde dorado como los botones del minimapa
-    local talentsButton = CreateFrame("Button", nil, page, "BackdropTemplate")
-    talentsButton:SetSize(22, 27)
-    talentsButton:SetPoint("LEFT", name, "RIGHT", 8, 0)
-    talentsButton:SetBackdrop({ edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border", edgeSize = 8 })
-    talentsButton.icon = talentsButton:CreateTexture(nil, "ARTWORK")
-    talentsButton.icon:SetPoint("TOPLEFT", 3, -3)
-    talentsButton.icon:SetPoint("BOTTOMRIGHT", -3, 3)
-    talentsButton.icon:SetTexture("Interface\\Icons\\Ability_Marksmanship")
-    talentsButton.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    talentsButton:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-    -- el mismo dibujo que el boton de talentos de la barra
-    local micro = TalentMicroButton or PlayerSpellsMicroButton
-    local source = micro and micro.GetNormalTexture and micro:GetNormalTexture()
-    if source then
-        local atlas = source:GetAtlas()
-        if atlas then
-            talentsButton.icon:SetAtlas(atlas)
-        elseif source:GetTexture() then
-            talentsButton.icon:SetTexture(source:GetTexture())
-            talentsButton.icon:SetTexCoord(source:GetTexCoord())
-        end
-    end
-    talentsButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    talentsButton:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(L["Talents"])
-        GameTooltip:Show()
-    end)
-    talentsButton:SetScript("OnClick", function()
-        window.section = window.section == "talents" and "items" or "talents"
-        RefreshWindow()
-    end)
-
-    local info = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
-    info:SetPoint("TOPLEFT", 16, -30)
-    local stats = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
-    stats:SetPoint("TOPLEFT", 16, -46)
-
-    -- como las pestanas de la ventana de personaje
-    page.sectionButtons = {}
-    for i, section in ipairs(SECTIONS) do
-        local btn = MakeButton(page, 112, L[section[2]], function()
+    -- secciones como iconos junto al nombre, con borde dorado como los del minimapa
+    local function SectionIcon(section)
+        local btn = CreateFrame("Button", nil, page, "BackdropTemplate")
+        btn:SetSize(26, 29)
+        btn:SetBackdrop({ edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border", edgeSize = 8 })
+        btn.icon = btn:CreateTexture(nil, "ARTWORK")
+        btn.icon:SetPoint("TOPLEFT", 3, -3)
+        btn.icon:SetPoint("BOTTOMRIGHT", -3, 3)
+        btn.icon:SetTexture(section[3])
+        btn.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+        btn:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(L[section[2]])
+            GameTooltip:Show()
+        end)
+        btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        btn:SetScript("OnClick", function()
             window.section = section[1]
             page.table.offset = 0
             page.info.offset = 0
             RefreshWindow()
         end)
-        btn:SetPoint("TOPLEFT", 16 + (i - 1) * 118, -64)
         btn.key = section[1]
+        return btn
+    end
+
+    page.sectionButtons = {}
+    for i, section in ipairs(SECTIONS) do
+        local btn = SectionIcon(section)
+        if i == 1 then
+            btn:SetPoint("LEFT", name, "RIGHT", 10, 0)
+        else
+            btn:SetPoint("LEFT", page.sectionButtons[i - 1], "RIGHT", 4, 0)
+        end
         table.insert(page.sectionButtons, btn)
     end
+
+    -- el mismo dibujo que el boton de talentos de la barra
+    local micro = TalentMicroButton or PlayerSpellsMicroButton
+    local source = micro and micro.GetNormalTexture and micro:GetNormalTexture()
+    local talentsIcon = page.sectionButtons[2].icon
+    if source then
+        local atlas = source:GetAtlas()
+        if atlas then
+            talentsIcon:SetAtlas(atlas)
+        elseif source:GetTexture() then
+            talentsIcon:SetTexture(source:GetTexture())
+            talentsIcon:SetTexCoord(source:GetTexCoord())
+        end
+    end
+
+    local info = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
+    info:SetPoint("TOPLEFT", 16, -30)
+    local stats = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
+    stats:SetPoint("TOPLEFT", 16, -46)
 
     page.filterButtons = {}
     for i, filter in ipairs(FILTERS) do
@@ -1853,20 +1857,20 @@ local function BuildCharacterPage(page)
             page.table.offset = 0
             RefreshWindow()
         end)
-        btn:SetPoint("TOPLEFT", 16 + (i - 1) * 86, -94)
+        btn:SetPoint("TOPLEFT", 16 + (i - 1) * 86, -64)
         btn.key = filter[1]
         table.insert(page.filterButtons, btn)
     end
 
     local search = CreateFrame("EditBox", nil, page, "InputBoxTemplate")
     search:SetSize(170, 20)
-    search:SetPoint("TOPLEFT", 16 + #FILTERS * 86 + 12, -95)
+    search:SetPoint("TOPLEFT", 16 + #FILTERS * 86 + 12, -65)
     search:SetAutoFocus(false)
     search:SetScript("OnEscapePressed", search.ClearFocus)
     search:SetScript("OnEnterPressed", search.ClearFocus)
     page.search = search
 
-    local items = MakeGrid(page, -126, 17, 5)
+    local items = MakeGrid(page, -96, 17, 6)
 
     local bagRow = CreateFrame("Frame", nil, page)
     bagRow:SetPoint("TOPLEFT", items, "BOTTOMLEFT", 0, -4)
@@ -1948,7 +1952,7 @@ local function BuildCharacterPage(page)
     end
 
     local doll = CreateFrame("Frame", nil, page)
-    doll:SetPoint("TOPLEFT", 0, -126)
+    doll:SetPoint("TOPLEFT", 0, -96)
     doll:SetPoint("BOTTOMRIGHT", 0, 30)
     doll.slots = {}
     local function AddDollSlot(slotName, x, y, side)
@@ -2032,7 +2036,7 @@ local function BuildCharacterPage(page)
         { key = "label", title = "", x = 4,   width = 330 },
         { key = "value", title = "", x = 340, width = 180 },
         { key = "extra", title = "", x = 526, width = 186, justify = "RIGHT" },
-    }, -94, ROWS - 3)
+    }, -64, ROWS - 1)
     local function InfoSection()
         if window.section == "items" then return "ah" end
         return window.section
@@ -2069,9 +2073,9 @@ local function BuildCharacterPage(page)
     page.info = infoTable
 
     -- tres arboles de 4 columnas, como la ventana de talentos clasica
-    local TALENT_ICON, TALENT_X, TALENT_Y, TREE_WIDTH = 30, 50, 37, 236
+    local TALENT_ICON, TALENT_X, TALENT_Y, TREE_WIDTH = 32, 50, 41, 236
     local talents = CreateFrame("Frame", nil, page)
-    talents:SetPoint("TOPLEFT", 16, -94)
+    talents:SetPoint("TOPLEFT", 16, -64)
     talents:SetPoint("BOTTOMRIGHT", -16, 28)
     talents.trees = {}
     for t = 1, 3 do
@@ -2193,12 +2197,11 @@ local function BuildCharacterPage(page)
             L["Rested"], RestedText(c),
             L["Played"], PlayedText(c), L["Last seen"], SeenText(c)))
         for _, btn in ipairs(page.sectionButtons) do
-            SetSelected(btn, btn.key == window.section)
+            if btn.key == window.section then btn:LockHighlight() else btn:UnlockHighlight() end
         end
         local itemsShown = window.section == "items"
         local auctions = itemsShown and window.filter == "ah"
         local talentsShown = window.section == "talents"
-        if talentsShown then talentsButton:LockHighlight() else talentsButton:UnlockHighlight() end
         talents:SetShown(talentsShown)
         if talentsShown then
             for _, btn in ipairs(page.filterButtons) do btn:Hide() end
