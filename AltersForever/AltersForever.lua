@@ -639,6 +639,24 @@ local function ScanPvP()
     me.pvp = pvp
 end
 
+-- llega con UPDATE_INSTANCE_INFO despues de RequestRaidInfo
+local function ScanLockouts()
+    local list = {}
+    for i = 1, GetNumSavedInstances() do
+        local name, _, reset, _, locked, extended, _, isRaid, _, difficulty, total, done = GetSavedInstanceInfo(i)
+        if name and (locked or extended) and (reset or 0) > 0 then
+            table.insert(list, { name, time() + reset, difficulty, done or 0, total or 0, isRaid })
+        end
+    end
+    for i = 1, GetNumSavedWorldBosses and GetNumSavedWorldBosses() or 0 do
+        local name, _, reset = GetSavedWorldBossInfo(i)
+        if name and (reset or 0) > 0 then table.insert(list, { name, time() + reset, L["World boss"], 0, 0, true }) end
+    end
+    table.sort(list, function(a, b) return a[2] < b[2] end)
+    me.lockouts = list
+    me.lockoutsSeen = time()
+end
+
 local function ScanCurrencies()
     local api = C_CurrencyInfo
     if not api or not api.GetCurrencyListSize then return end
@@ -1677,7 +1695,7 @@ local SECTIONS = {
     { "items",      "Items" },
     { "reps",       "Reputation" },
     { "skills",     "Skills" },
-    { "pvp",        "PvP" },
+    { "pvp",        "PvE/PvP" },
     { "currencies", "Currency" },
     { "stats",      "Statistics" },
 }
@@ -1712,8 +1730,23 @@ function InfoRows(c, section)
                 table.insert(rows, { icon .. currency[1], currency[2], currency[3] > 0 and format(L["max %d"], currency[3]) or "" })
             end
         end
-    elseif section == "pvp" and c.pvp then
+    elseif section == "pvp" then
+        if c.lockoutsSeen then
+            table.insert(rows, { header = L["Saved instances"] })
+            local any
+            for _, lockout in ipairs(c.lockouts or {}) do
+                local left = lockout[2] - time()
+                if left > 0 then
+                    any = true
+                    local name = lockout[1] .. (lockout[3] and lockout[3] ~= "" and ("  |cff999999" .. lockout[3] .. "|r") or "")
+                    table.insert(rows, { name, lockout[5] > 0 and format(L["%d/%d bosses"], lockout[4], lockout[5]) or "",
+                        format(L["resets in %s"], Duration(left)) })
+                end
+            end
+            if not any then table.insert(rows, { "|cff999999" .. L["No saved instances"] .. "|r" }) end
+        end
         local pvp = c.pvp
+        if not pvp then return rows end
         table.insert(rows, { header = L["Honourable kills"] })
         table.insert(rows, { L["Today"], pvp.session[1] or 0 })
         table.insert(rows, { L["Yesterday"], pvp.yesterday[1] or 0 })
@@ -2920,6 +2953,8 @@ function events.SKILL_LINES_CHANGED()
 end
 function events.CURRENCY_DISPLAY_UPDATE() ScanLater(ScanCurrencies) end
 function events.PLAYER_PVP_KILLS_CHANGED() ScanPvP() end
+function events.UPDATE_INSTANCE_INFO() ScanLockouts() end
+function events.BOSS_KILL() C_Timer.After(2, RequestRaidInfo) end
 function events.UNIT_STATS(unit) if unit == "player" then QueueStats() end end
 events.UNIT_RESISTANCES = events.UNIT_STATS
 events.UNIT_MAXHEALTH = events.UNIT_STATS
@@ -3083,6 +3118,7 @@ loader:SetScript("OnEvent", function(self, event, ...)
     C_Timer.After(8, WarnMail)
     C_Timer.After(9, WarnAuctions)
     C_Timer.After(10, CheckCooldowns)
+    C_Timer.After(11, RequestRaidInfo)
     -- de una en una, separadas
     for i, scan in ipairs({ ScanReputations, ScanSkills, ScanPvP, ScanCurrencies, ScanStats, ScanTalents }) do
         C_Timer.After(2 + i, function() RunScan(scan) end)
