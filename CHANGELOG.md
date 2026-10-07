@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.20
+
+- Items are grouped bag by bag, each bag under a divider with its icon, name and used slots. The row of bags under the grid is gone.
+- Bags are drawn slot for slot, in the same order as in the game and with their empty slots. Characters need to log in (and open the bank) once to get this.
+- With the Blizzard theme the slots use the game's bag slot art.
+- Clicking a bag's divider collapses or expands it, Shift-click does all of them. It is remembered between sessions.
+
 ## 1.10
 
 - Talents: each character's talent trees, with the points spent and still free.
