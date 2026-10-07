@@ -24,6 +24,10 @@ divider with its name and how full it is, slot for slot as it is in the game,
 empty slots included. They can be filtered by bags, bank, mail, equipped or
 auction. Equipped gear is laid out like the paper doll.
 
+The Guild tab shows the guild bank tab by tab, slot for slot as it is in the
+game, with its gold. It is read when you open the guild bank with any
+character in the guild, and item tooltips and Search count it too.
+
 Professions shows the ranks of every character side by side. Click one to see
 its recipes, coloured by how likely they are to give a skill-up, with their
 materials and how many of them that character has. You can search recipes by

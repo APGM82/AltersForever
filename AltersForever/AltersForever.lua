@@ -283,6 +283,105 @@ local function ScanBank()
     me.bankSeen = time()
 end
 
+-- banco de hermandad: una entrada por hermandad y reino
+local guildBank = { slots = MAX_GUILDBANK_SLOTS_PER_TAB or 98 }
+
+function guildBank.MyGuild()
+    local name = GetGuildInfo("player")
+    if not name then return end
+    local realm = GetRealmName() or ""
+    local key = name .. "-" .. realm
+    db.guilds[key] = db.guilds[key] or { name = name, realm = realm, tabs = {} }
+    return db.guilds[key]
+end
+
+-- lo que hay de cada objeto, para los tooltips y la busqueda
+function guildBank.CountGuildItems(guild)
+    local items = {}
+    for _, tab in pairs(guild.tabs) do
+        for _, item in pairs(tab.slots or {}) do
+            items[item[1]] = (items[item[1]] or 0) + item[2]
+        end
+    end
+    guild.items = items
+end
+
+function guildBank.ScanGuildTab(tab)
+    local guild = guildBank.MyGuild()
+    if not guild then return end
+    local name, icon, viewable = GetGuildBankTabInfo(tab)
+    if not viewable then return end
+    local slots = {}
+    for slot = 1, guildBank.slots do
+        local link = GetGuildBankItemLink(tab, slot)
+        local id = link and tonumber(link:match("item:(%d+)"))
+        if id then
+            local _, count = GetGuildBankItemInfo(tab, slot)
+            slots[slot] = { id, count or 1, link }
+            Remember(id, link)
+        end
+    end
+    guild.tabs[tab] = { name = name, icon = icon, slots = slots }
+    guild.seen, guild.by = time(), me.name
+    guildBank.CountGuildItems(guild)
+end
+
+-- el juego solo manda una pestana por consulta: de una en una
+function guildBank.NextGuildTab()
+    guildBank.pending = guildBank.queue and table.remove(guildBank.queue, 1)
+    if not guildBank.pending or not guildBank.open then
+        guildBank.pending = nil
+        return
+    end
+    local tab = guildBank.pending
+    guildBank.queried[tab] = true
+    QueryGuildBankTab(tab)
+    -- sin respuesta, la siguiente
+    C_Timer.After(3, function()
+        if guildBank.pending == tab then guildBank.NextGuildTab() end
+    end)
+end
+
+function guildBank.ReadGuildBank()
+    local guild = guildBank.MyGuild()
+    if not guild then return end
+    guild.money = GetGuildBankMoney()
+    local numTabs = GetNumGuildBankTabs() or 0
+    if numTabs == 0 then return end
+    for tab in pairs(guild.tabs) do
+        if tab > numTabs then guild.tabs[tab] = nil end
+    end
+    guildBank.queue = {}
+    for tab = 1, numTabs do
+        local _, _, viewable = GetGuildBankTabInfo(tab)
+        if viewable then table.insert(guildBank.queue, tab) end
+    end
+    if not guildBank.pending then guildBank.NextGuildTab() end
+end
+
+function guildBank.OpenGuildBank()
+    if guildBank.open then return end
+    guildBank.open, guildBank.queried = true, {}
+    guildBank.ReadGuildBank()
+end
+
+-- cada respuesta repasa las pestanas ya pedidas y la que se ve
+function guildBank.GuildSlotsChanged()
+    if not guildBank.open or guildBank.scanQueued then return end
+    guildBank.scanQueued = true
+    C_Timer.After(0.2, function()
+        guildBank.scanQueued = false
+        if not guildBank.open then return end
+        local current = GetCurrentGuildBankTab and GetCurrentGuildBankTab()
+        if current and current > 0 then guildBank.queried[current] = true end
+        for tab in pairs(guildBank.queried) do guildBank.ScanGuildTab(tab) end
+        if guildBank.pending then
+            guildBank.pending = nil
+            guildBank.NextGuildTab()
+        end
+    end)
+end
+
 -- el enlace guarda encantamientos y sufijos ("del oso")
 local function ScanWorn()
     me.worn, me.gear = {}, {}
@@ -1006,11 +1105,25 @@ local function AddOwners(tooltip, itemID)
             end
         end
     end
-    if #lines == 0 then return end
+    local guilds = {}
+    for _, guild in pairs(db.guilds) do
+        local count = guild.items and guild.items[itemID]
+        if count and count > 0 then table.insert(guilds, { guild.name, count }) end
+    end
+    if #lines == 0 and #guilds == 0 then return end
+    table.sort(guilds, function(a, b) return a[1] < b[1] end)
+    local function AddGuilds()
+        for _, line in ipairs(guilds) do
+            tooltip:AddDoubleLine("|cff99ff99<" .. line[1] .. ">|r", tostring(line[2]), 1, 1, 1, 1, 1, 1)
+        end
+    end
 
     tooltip:AddLine(" ")
     if options.tooltipTotalOnly then
-        tooltip:AddDoubleLine(L["Your characters"], tostring(grand), theme.header[1], theme.header[2], theme.header[3], 1, 1, 1)
+        if #lines > 0 then
+            tooltip:AddDoubleLine(L["Your characters"], tostring(grand), theme.header[1], theme.header[2], theme.header[3], 1, 1, 1)
+        end
+        AddGuilds()
         tooltip:Show()
         return
     end
@@ -1022,6 +1135,7 @@ local function AddOwners(tooltip, itemID)
     if #lines > 1 then
         tooltip:AddDoubleLine(L["Total"], tostring(grand), theme.header[1], theme.header[2], theme.header[3], 1, 1, 1)
     end
+    AddGuilds()
     tooltip:Show()
 end
 
@@ -1548,26 +1662,31 @@ local function SearchResults(query)
     query = strtrim(query or ""):lower()
     if #query < 2 then return results end
     local found = {}
-    for _, c in ipairs(SortedChars()) do
-        for _, place in ipairs(PLACES) do
-            for id, count in pairs(c[place[1]] or {}) do
-                local name = ItemName(id)
-                if name and name:lower():find(query, 1, true) then
-                    local entry = found[id]
-                    if not entry then
-                        entry = { id = id, name = name, total = 0, owners = {}, order = {} }
-                        found[id] = entry
-                        table.insert(results, entry)
-                    end
-                    if not entry.owners[c] then
-                        entry.owners[c] = 0
-                        table.insert(entry.order, c)
-                    end
-                    entry.owners[c] = entry.owners[c] + count
-                    entry.total = entry.total + count
+    local function Add(owner, items)
+        for id, count in pairs(items or {}) do
+            local name = ItemName(id)
+            if name and name:lower():find(query, 1, true) then
+                local entry = found[id]
+                if not entry then
+                    entry = { id = id, name = name, total = 0, owners = {}, order = {} }
+                    found[id] = entry
+                    table.insert(results, entry)
                 end
+                if not entry.owners[owner] then
+                    entry.owners[owner] = 0
+                    table.insert(entry.order, owner)
+                end
+                entry.owners[owner] = entry.owners[owner] + count
+                entry.total = entry.total + count
             end
         end
+    end
+    for _, c in ipairs(SortedChars()) do
+        for _, place in ipairs(PLACES) do Add(c, c[place[1]]) end
+    end
+    -- la hermandad sale como uno mas, en verde
+    for _, guild in pairs(db.guilds) do
+        Add({ name = "|cff99ff99<" .. guild.name .. ">|r" }, guild.items)
     end
     table.sort(results, function(a, b) return a.name < b.name end)
     return results
@@ -1954,6 +2073,7 @@ local function MakeGrid(parent, top, cols, height)
         local groups = self.source()
         self.groups = groups
         local rows = Rows(groups)
+        self.rows = rows
 
         -- hasta donde se puede bajar sin dejar hueco abajo
         local first, used = #rows + 1, 0
@@ -1966,6 +2086,8 @@ local function MakeGrid(parent, top, cols, height)
         self.offset = math.max(0, math.min(self.offset, lastOffset))
 
         local y, nSlots, nHeaders = 0, 0, 0
+        local top = rows[self.offset + 1]
+        self.topGroup = top and (top.header or top.group)
         for i = self.offset + 1, #rows do
             local row = rows[i]
             if y + (row.header and HEADER or SLOT) > height then break end
@@ -2008,6 +2130,17 @@ local function MakeGrid(parent, top, cols, height)
         for i = nHeaders + 1, #self.headers do self.headers[i]:Hide() end
 
         if self.after then self.after(groups, lastOffset > 0) end
+    end
+
+    -- deja ese grupo arriba del todo
+    function grid:ScrollTo(key)
+        for i, row in ipairs(self.rows or {}) do
+            if row.header and row.header.key == key then
+                self.offset = i - 1
+                self:Refresh()
+                return
+            end
+        end
     end
     return grid
 end
@@ -2899,6 +3032,185 @@ function RefreshWindow()
     end
 end
 
+-- banco de hermandad en la ventana
+
+-- las hermandades guardadas, la del personaje primero
+function guildBank.List()
+    local list = {}
+    for key, guild in pairs(db.guilds) do
+        if guild.seen then
+            guild.key = key
+            table.insert(list, guild)
+        end
+    end
+    local mine = me.guild and (me.guild .. "-" .. (me.realm or ""))
+    table.sort(list, function(a, b)
+        if (a.key == mine) ~= (b.key == mine) then return a.key == mine end
+        return a.key < b.key
+    end)
+    return list
+end
+
+-- casillas en el orden del juego: siete columnas dobles de siete filas
+function guildBank.Groups(guild, query)
+    local groups, seen = {}, {}
+    query = strtrim(query or ""):lower()
+    local tabs = {}
+    for tab in pairs(guild and guild.tabs or {}) do table.insert(tabs, tab) end
+    table.sort(tabs)
+    for _, tab in ipairs(tabs) do
+        local data = guild.tabs[tab]
+        local title = (data.name and data.name ~= "") and data.name or format(GUILDBANK_TAB_NUMBER or "Tab %d", tab)
+        local group = { key = "gtab" .. tab, title = title, icon = data.icon, slots = {} }
+        local used = 0
+        for row = 0, 6 do
+            for col = 0, 13 do
+                local item = data.slots[math.floor(col / 2) * 14 + (col % 2) * 7 + row + 1]
+                if item then
+                    used = used + 1
+                    seen[item[1]] = true
+                    table.insert(group.slots, { id = item[1], total = item[2], link = item[3], dim = not Matches(item[1], query) })
+                else
+                    table.insert(group.slots, { empty = true })
+                end
+            end
+        end
+        group.count = format("%d/%d", used, guildBank.slots)
+        group.info = { free = guildBank.slots - used, size = guildBank.slots }
+        table.insert(groups, group)
+    end
+    local unique = 0
+    for _ in pairs(seen) do unique = unique + 1 end
+    groups.unique = unique
+    return groups
+end
+
+function guildBank.BuildPage(page)
+    local title = page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 16, -8)
+    local info = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
+    info:SetPoint("TOPLEFT", 16, -33)
+
+    local search = CreateFrame("EditBox", nil, page, "InputBoxTemplate")
+    search:SetSize(170, 20)
+    search:SetPoint("TOPRIGHT", -60, -29)
+    search:SetAutoFocus(false)
+    search:SetScript("OnEscapePressed", search.ClearFocus)
+    search:SetScript("OnEnterPressed", search.ClearFocus)
+
+    local grid = MakeGrid(page, -58, 14, 322)
+    search:SetScript("OnTextChanged", function()
+        grid.offset = 0
+        grid:Refresh()
+    end)
+
+    local empty = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "dim")
+    empty:SetPoint("TOP", 0, -120)
+    empty:SetWidth(440)
+    empty:SetText(L["Open the guild bank with a character to see it here."])
+
+    local footer = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "dim")
+    footer:SetPoint("BOTTOMLEFT", 16, 14)
+
+    -- otras hermandades guardadas, arriba a la derecha
+    local guildButtons = {}
+    local function GuildButton(i)
+        if not guildButtons[i] then
+            local btn = MakeButton(page, 120, "", function(self)
+                window.guildKey = self.key
+                grid.offset = 0
+                RefreshWindow()
+            end)
+            if i == 1 then
+                btn:SetPoint("TOPRIGHT", -12, -6)
+            else
+                btn:SetPoint("RIGHT", guildButtons[i - 1], "LEFT", -6, 0)
+            end
+            guildButtons[i] = btn
+        end
+        return guildButtons[i]
+    end
+
+    -- pestanas a la derecha, como en el banco del juego
+    local tabIcons = {}
+    local function TabIcon(i)
+        if tabIcons[i] then return tabIcons[i] end
+        local btn = CreateFrame("Button", nil, page, "BackdropTemplate")
+        btn:SetSize(30, 30)
+        btn:SetPoint("TOPRIGHT", -16, -58 - (i - 1) * 36)
+        btn:SetBackdrop({ edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border", edgeSize = 8 })
+        btn.icon = btn:CreateTexture(nil, "ARTWORK")
+        btn.icon:SetPoint("TOPLEFT", 3, -3)
+        btn.icon:SetPoint("BOTTOMRIGHT", -3, 3)
+        btn.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+        btn:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(self.group.title)
+            GameTooltip:AddLine(format(L["%d of %d slots free"], self.group.info.free, self.group.info.size), 1, 1, 1)
+            GameTooltip:Show()
+        end)
+        btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        btn:SetScript("OnClick", function(self)
+            db.options.collapsed[self.group.key] = nil
+            grid:ScrollTo(self.group.key)
+        end)
+        tabIcons[i] = btn
+        return btn
+    end
+
+    page.Update = function()
+        local list = guildBank.List()
+        local guild = list[1]
+        for _, entry in ipairs(list) do
+            if entry.key == window.guildKey then guild = entry end
+        end
+        window.guildKey = guild and guild.key
+        page.guild = guild
+
+        for _, btn in ipairs(guildButtons) do btn:Hide() end
+        if #list > 1 then
+            for i, entry in ipairs(list) do
+                if i > 4 then break end
+                local btn = GuildButton(i)
+                btn.key = entry.key
+                btn:SetLabel(entry.name)
+                SetSelected(btn, entry == guild)
+                btn:Show()
+            end
+        end
+
+        if guild then
+            local d = theme.dim
+            title:SetText(format("|cff99ff99<%s>|r  |cff%02x%02x%02x%s|r", guild.name, d[1] * 255, d[2] * 255, d[3] * 255, guild.realm or ""))
+            info:SetText(L["Gold"] .. ": " .. Money(guild.money) .. "     "
+                .. format(L["Seen %s by %s"], format(L["%s ago"], Duration(time() - guild.seen)), guild.by or "?"))
+        else
+            title:SetText("")
+            info:SetText("")
+        end
+        empty:SetShown(not guild)
+        search:SetShown(guild ~= nil)
+        footer:SetShown(guild ~= nil)
+    end
+
+    grid.source = function() return guildBank.Groups(page.guild, search:GetText()) end
+    grid.after = function(groups, more)
+        for i, group in ipairs(groups) do
+            local btn = TabIcon(i)
+            btn.group = group
+            btn.icon:SetTexture(group.icon or 134400)
+            if grid.topGroup == group then btn:LockHighlight() else btn:UnlockHighlight() end
+            btn:Show()
+        end
+        for i = #groups + 1, #tabIcons do tabIcons[i]:Hide() end
+        local text = format(L["%d different items"], groups.unique)
+        if more then text = text .. "    " .. L["mouse wheel to see more"] end
+        footer:SetText(text)
+    end
+    page.table = grid
+end
+
 local function BuildWindow()
     window = CreateFrame("Frame", "AltersForeverWindow", UIParent)
     window:SetSize(740, 106 + 18 + ROWS * ROW_HEIGHT + 30)
@@ -3101,15 +3413,7 @@ local function BuildWindow()
 
     BuildOptionsTab(window.pages[OPTIONS_PAGE])
 
-    -- banco de hermandad: pendiente
-    local guild = window.pages[GUILD_PAGE]
-    local soon = Skin(guild:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"), "header")
-    soon:SetPoint("TOP", 0, -110)
-    soon:SetText(L["Under development"])
-    local soonText = Skin(guild:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "dim")
-    soonText:SetPoint("TOP", soon, "BOTTOM", 0, -14)
-    soonText:SetWidth(520)
-    soonText:SetText(L["This tab will show your guild bank. It will come once it can be tested with a real one."])
+    guildBank.BuildPage(window.pages[GUILD_PAGE])
 
     -- esperas de todos los personajes, la mas cercana primero
     local cooldowns = MakeTable(window.pages[COOLDOWNS_PAGE], {
@@ -3365,6 +3669,22 @@ function events.PLAYERBANKSLOTS_CHANGED()
     if bankOpen then ScanBank() end
 end
 
+function events.GUILDBANKFRAME_OPENED() guildBank.OpenGuildBank() end
+function events.GUILDBANKFRAME_CLOSED() guildBank.open = false end
+-- en los clientes nuevos el banco llega por aqui
+function events.PLAYER_INTERACTION_MANAGER_FRAME_SHOW(kind)
+    if Enum.PlayerInteractionType and kind == Enum.PlayerInteractionType.GuildBanker then guildBank.OpenGuildBank() end
+end
+function events.PLAYER_INTERACTION_MANAGER_FRAME_HIDE(kind)
+    if Enum.PlayerInteractionType and kind == Enum.PlayerInteractionType.GuildBanker then guildBank.open = false end
+end
+function events.GUILDBANK_UPDATE_TABS() if guildBank.open and not guildBank.pending then guildBank.ReadGuildBank() end end
+function events.GUILDBANKBAGSLOTS_CHANGED() guildBank.GuildSlotsChanged() end
+function events.GUILDBANK_UPDATE_MONEY()
+    local guild = guildBank.open and guildBank.MyGuild()
+    if guild then guild.money = GetGuildBankMoney() end
+end
+
 function events.MAIL_SHOW() mailOpen = true end
 function events.AUCTION_HOUSE_SHOW() QueryAuctions() end
 function events.AUCTION_HOUSE_AUCTION_CREATED() pcall(C_AuctionHouse.QueryOwnedAuctions, {}) end
@@ -3429,6 +3749,7 @@ loader:SetScript("OnEvent", function(self, event, ...)
     db.factions = db.factions or {}
     db.talents = db.talents or {}
     db.statNames = db.statNames or {}
+    db.guilds = db.guilds or {}
     db.probe = nil
     for _, c in pairs(db.chars) do
         for _, prof in ipairs(c.profs or {}) do
@@ -3464,6 +3785,9 @@ loader:SetScript("OnEvent", function(self, event, ...)
         for _, place in ipairs(PLACES) do
             for id in pairs(c[place[1]] or {}) do owned[id] = true end
         end
+    end
+    for _, guild in pairs(db.guilds) do
+        for id in pairs(guild.items or {}) do owned[id] = true end
     end
     for id in pairs(db.names) do
         if not owned[id] then db.names[id] = nil end

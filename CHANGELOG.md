@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Guild tab: the guild bank, tab by tab and slot for slot as in the game, with its gold, a search box and the tab icons on the right to jump to each tab. It is read when you open the guild bank, from any character in the guild.
+- Item tooltips and the Search tab also count what is in the guild bank.
+
 ## 1.20
 
 - Items are grouped bag by bag, each bag under a divider with its icon, name and used slots. The row of bags under the grid is gone.
