@@ -1373,7 +1373,7 @@ local function MakeButton(parent, width, label, onClick)
     gloss:SetPoint("TOPLEFT", 1, -1)
     gloss:SetPoint("TOPRIGHT", -1, -1)
     gloss:SetHeight(1)
-    gloss:SetVertexColor(1, 0.92, 0.70, 0.16)
+    gloss:SetVertexColor(1, 0.90, 0.74, 0.16)
     local drop = forever.Plain(btn, "BACKGROUND", -2)
     drop:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 1, 0)
     drop:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", -1, 0)
@@ -1400,7 +1400,7 @@ local function MakeButton(parent, width, label, onClick)
         if self.face.role == "button" then Skin(self.face, "hover") end
         if theme.forever and not theme.native then
             wash:Show()
-            for _, line in ipairs(self.lines) do line:SetColorTexture(1, 0.86, 0.42, 1) end
+            for _, line in ipairs(self.lines) do line:SetColorTexture(0.98, 0.84, 0.47, 1) end
         end
     end)
     btn:SetScript("OnLeave", function(self)
@@ -3528,7 +3528,7 @@ local function BuildWindow()
         line:SetPoint(e[1], e[2], e[3])
         line:SetPoint(e[4], e[5], e[6])
         if e[7] == "y" then line:SetHeight(1) else line:SetWidth(1) end
-        line:SetVertexColor(0.78, 0.61, 0.10, 0.30)
+        line:SetVertexColor(0.73, 0.57, 0.17, 0.30)
     end
     -- dos mitades: de nada a oro en el centro y de vuelta a nada
     local function Fading(layer, y, width, height, alpha, add)
