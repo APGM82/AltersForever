@@ -1108,7 +1108,7 @@ local function AddOwners(tooltip, itemID)
     local guilds = {}
     for _, guild in pairs(db.guilds) do
         local count = guild.items and guild.items[itemID]
-        if count and count > 0 then table.insert(guilds, { guild.name, count }) end
+        if count and count > 0 then table.insert(guilds, { guildBank.Label(guild), count }) end
     end
     if #lines == 0 and #guilds == 0 then return end
     table.sort(guilds, function(a, b) return a[1] < b[1] end)
@@ -1686,7 +1686,7 @@ local function SearchResults(query)
     end
     -- la hermandad sale como uno mas, en verde
     for _, guild in pairs(db.guilds) do
-        Add({ name = "|cff99ff99<" .. guild.name .. ">|r" }, guild.items)
+        Add({ name = "|cff99ff99<" .. guildBank.Label(guild) .. ">|r" }, guild.items)
     end
     table.sort(results, function(a, b) return a.name < b.name end)
     return results
@@ -3051,6 +3051,17 @@ function guildBank.List()
     return list
 end
 
+-- en Forever el "reino" es el conjunto de reglas (Normal, JcJ...): solo
+-- se pone cuando otra hermandad guardada se llama igual
+function guildBank.Label(guild)
+    for _, other in pairs(db.guilds) do
+        if other ~= guild and other.seen and other.name == guild.name then
+            return format("%s (%s)", guild.name, guild.realm or "?")
+        end
+    end
+    return guild.name
+end
+
 -- casillas en el orden del juego: siete columnas dobles de siete filas
 function guildBank.Groups(guild, query)
     local groups, seen = {}, {}
@@ -3112,15 +3123,64 @@ function guildBank.BuildPage(page)
     local footer = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "dim")
     footer:SetPoint("BOTTOMLEFT", 16, 14)
 
-    -- otras hermandades guardadas, arriba a la derecha
+    StaticPopupDialogs.ALTERSFOREVER_FORGET_GUILD = {
+        text = L["Forget the saved guild bank of %s?"],
+        button1 = L["Forget"],
+        button2 = CANCEL,
+        OnAccept = function(_, key)
+            db.guilds[key] = nil
+            RefreshWindow()
+        end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+    }
+
+    local menu
+    local function Choose(key, mouse)
+        if menu then menu:Hide() end
+        local guild = db.guilds[key]
+        if not guild then return end
+        if mouse == "RightButton" then
+            StaticPopup_Show("ALTERSFOREVER_FORGET_GUILD", guildBank.Label(guild), nil, key)
+            return
+        end
+        window.guildKey = key
+        grid.offset = 0
+        RefreshWindow()
+    end
+
+    local function GuildTooltip(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText(self.tip or "")
+        if self.list then
+            GameTooltip:AddLine(L["Click: choose another guild"], 0.6, 0.6, 0.6)
+        end
+        GameTooltip:AddLine(L["Right click: forget this guild bank"], 0.6, 0.6, 0.6)
+        GameTooltip:Show()
+    end
+
+    -- hasta tres, un boton por hermandad; con mas, una lista
     local guildButtons = {}
     local function GuildButton(i)
         if not guildButtons[i] then
-            local btn = MakeButton(page, 120, "", function(self)
-                window.guildKey = self.key
-                grid.offset = 0
-                RefreshWindow()
+            local btn = MakeButton(page, 110, "", function(self, mouse)
+                if self.list and mouse ~= "RightButton" then
+                    if menu:IsShown() then menu:Hide() else menu.Open(self) end
+                    return
+                end
+                Choose(self.key, mouse)
             end)
+            -- los nombres largos acaban en ...
+            for _, text in ipairs({ btn.label, btn.native:GetFontString() }) do
+                text:SetWidth(100)
+                text:SetWordWrap(false)
+            end
+            for _, frame in ipairs({ btn, btn.native }) do
+                frame:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+                frame:HookScript("OnEnter", function() GuildTooltip(btn) end)
+                frame:HookScript("OnLeave", function() GameTooltip:Hide() end)
+            end
             if i == 1 then
                 btn:SetPoint("TOPRIGHT", -12, -6)
             else
@@ -3129,6 +3189,57 @@ function guildBank.BuildPage(page)
             guildButtons[i] = btn
         end
         return guildButtons[i]
+    end
+
+    menu = CreateFrame("Frame", nil, page, "BackdropTemplate")
+    menu:SetFrameStrata("FULLSCREEN_DIALOG")
+    menu:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 },
+    })
+    menu:SetBackdropColor(0, 0, 0, 0.92)
+    menu:EnableMouse(true)
+    menu:Hide()
+    page:HookScript("OnHide", function() menu:Hide() end)
+    menu.rows = {}
+    menu.Open = function(anchor)
+        local list = guildBank.List()
+        local width = 160
+        for i, guild in ipairs(list) do
+            local row = menu.rows[i]
+            if not row then
+                row = CreateFrame("Button", nil, menu)
+                row:SetHeight(20)
+                row:SetPoint("TOPLEFT", 8, -8 - (i - 1) * 20)
+                row:SetPoint("RIGHT", -8, 0)
+                row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+                row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+                row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                row.text:SetPoint("LEFT", 4, 0)
+                row:SetScript("OnClick", function(self, mouse) Choose(self.key, mouse) end)
+                row:SetScript("OnEnter", function(self)
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetText(self.tip)
+                    GameTooltip:AddLine(L["Right click: forget this guild bank"], 0.6, 0.6, 0.6)
+                    GameTooltip:Show()
+                end)
+                row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                menu.rows[i] = row
+            end
+            row.key = guild.key
+            row.tip = guildBank.Label(guild)
+            local mark = guild.key == window.guildKey and "|cffffd100> |r" or "   "
+            row.text:SetText(mark .. "|cff99ff99<" .. row.tip .. ">|r")
+            width = math.max(width, row.text:GetStringWidth() + 24)
+            row:Show()
+        end
+        for i = #list + 1, #menu.rows do menu.rows[i]:Hide() end
+        menu:SetSize(width, #list * 20 + 16)
+        menu:ClearAllPoints()
+        menu:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -2)
+        menu:Show()
     end
 
     -- pestanas a la derecha, como en el banco del juego
@@ -3169,11 +3280,18 @@ function guildBank.BuildPage(page)
         page.guild = guild
 
         for _, btn in ipairs(guildButtons) do btn:Hide() end
-        if #list > 1 then
+        if #list > 3 then
+            local btn = GuildButton(1)
+            btn.key, btn.list = guild.key, true
+            btn.tip = guildBank.Label(guild)
+            btn:SetLabel(format(L["Guilds (%d)"], #list))
+            SetSelected(btn, false)
+            btn:Show()
+        else
             for i, entry in ipairs(list) do
-                if i > 4 then break end
                 local btn = GuildButton(i)
-                btn.key = entry.key
+                btn.key, btn.list = entry.key, nil
+                btn.tip = guildBank.Label(entry)
                 btn:SetLabel(entry.name)
                 SetSelected(btn, entry == guild)
                 btn:Show()
@@ -3181,8 +3299,7 @@ function guildBank.BuildPage(page)
         end
 
         if guild then
-            local d = theme.dim
-            title:SetText(format("|cff99ff99<%s>|r  |cff%02x%02x%02x%s|r", guild.name, d[1] * 255, d[2] * 255, d[3] * 255, guild.realm or ""))
+            title:SetText("|cff99ff99<" .. guildBank.Label(guild) .. ">|r")
             info:SetText(L["Gold"] .. ": " .. Money(guild.money) .. "     "
                 .. format(L["Seen %s by %s"], format(L["%s ago"], Duration(time() - guild.seen)), guild.by or "?"))
         else
