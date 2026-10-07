@@ -154,4 +154,4 @@ ns.themes = {
     },
 }
 
-ns.DEFAULT_THEME = "blizzard"
+ns.DEFAULT_THEME = "forever"
