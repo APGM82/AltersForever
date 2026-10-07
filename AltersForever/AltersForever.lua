@@ -2207,7 +2207,7 @@ local function BuildCharacterPage(page)
     for i, section in ipairs(SECTIONS) do
         local btn = SectionIcon(section)
         if i == 1 then
-            btn:SetPoint("LEFT", name, "RIGHT", 10, 0)
+            btn:SetPoint("LEFT", name, "RIGHT", 10, 2)
         else
             btn:SetPoint("LEFT", page.sectionButtons[i - 1], "RIGHT", 4, 0)
         end
@@ -2230,9 +2230,9 @@ local function BuildCharacterPage(page)
     CopyMicroIcon(LegacyMicroButton, page.sectionButtons[3].icon)
 
     local info = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
-    info:SetPoint("TOPLEFT", 16, -30)
+    info:SetPoint("TOPLEFT", 16, -33)
     local stats = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
-    stats:SetPoint("TOPLEFT", 16, -46)
+    stats:SetPoint("TOPLEFT", 16, -48)
 
     page.filterButtons = {}
     for i, filter in ipairs(FILTERS) do
