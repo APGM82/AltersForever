@@ -1,5 +1,6 @@
 -- Temas: { r, g, b, a } para texturas, { r, g, b } para texto.
 -- native = true usa las plantillas del juego en vez de dibujar.
+-- forever = true pone relieve, brillos y la letra de los titulos.
 
 local _, ns = ...
 
@@ -133,6 +134,23 @@ ns.themes = {
         text       = { 1.00, 1.00, 1.00 },
         dim        = { 0.60, 0.60, 0.60 },
     },
+    {
+        key        = "forever",
+        name       = "Forever",
+        forever    = true,
+        border     = { 0.50, 0.37, 0.18, 1 },
+        background = { 0.055, 0.052, 0.048, 1 },
+        button     = { 0.13, 0.12, 0.105, 1 },
+        hover      = { 0.19, 0.17, 0.13, 1 },
+        selected   = { 0.36, 0.27, 0.08, 1 },
+        box        = { 0.035, 0.034, 0.03, 1 },
+        row        = { 1, 0.82, 0, 0.09 },
+        stripe     = { 1, 1, 1, 0.025 },
+        title      = { 1.00, 0.86, 0.45 },
+        header     = { 1.00, 0.82, 0.00 },
+        text       = { 0.92, 0.90, 0.86 },
+        dim        = { 0.55, 0.53, 0.50 },
+    },
 }
 
-ns.DEFAULT_THEME = "blizzard"
+ns.DEFAULT_THEME = "forever"
