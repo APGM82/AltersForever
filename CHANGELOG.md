@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.30
 
+- New Forever theme, now the default: dark glass with bronze lines, buttons with relief and a gold edge under the mouse, a gold bar on the row under the mouse, and headings in the quest-title font. If you had already picked a theme you keep it; the Options tab or `/alts theme forever` switches to it.
 - Guild tab: the guild bank, tab by tab and slot for slot as in the game, with its gold, a search box and the tab icons on the right to jump to each tab. It is read when you open the guild bank, from any character in the guild.
 - Item tooltips and the Search tab also count what is in the guild bank.
 - Characters in different guilds: one button per guild at the top of the Guild tab, or a list when there are more than three. Right click forgets a guild bank. Two guilds with the same name on different rulesets show the ruleset next to the name.

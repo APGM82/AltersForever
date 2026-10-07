@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: |cff66cc99Alters Forever|r
-## Version: 1.20
+## Version: 1.30
 ## SavedVariables: AltersForeverDB
 ## IconTexture: Interface\Icons\INV_Misc_Head_Human_01
 

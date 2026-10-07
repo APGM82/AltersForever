@@ -40,10 +40,10 @@ from all your characters and tells you in chat when one is ready.
 Columns can be sorted by clicking their header. Characters you don't want to
 see can be hidden with a right click, without deleting anything.
 
-By default the window uses the game's own frames and buttons, so it looks like
-any other Blizzard window. There are also seven colour themes if you prefer
-something different. Size and opacity can be changed, and every colour lives
-in `Themes.lua` if you want to make your own.
+By default the window uses the Forever look: dark glass with bronze lines and
+gold highlights. The Blizzard theme gives it the game's own frames and buttons,
+and there are seven colour themes too. Size and opacity can be changed, and
+every colour lives in `Themes.lua` if you want to make your own.
 
 ## Commands
 
@@ -52,7 +52,7 @@ in `Themes.lua` if you want to make your own.
 | `/alts` | Open or close the window |
 | `/alts tooltip` | Turn the item tooltip lines on or off |
 | `/alts button` | Show or hide the minimap button |
-| `/alts theme horde` | Change the colours (`green`, `blue`, `purple`, `grey`, `classic`, `alliance`, `horde`, `blizzard`) |
+| `/alts theme horde` | Change the colours (`forever`, `blizzard`, `green`, `blue`, `purple`, `grey`, `classic`, `alliance`, `horde`) |
 | `/alts scale 1.2` | Window size, from 0.6 to 1.6 |
 
 `/af` and `/alters` work the same as `/alts`.
