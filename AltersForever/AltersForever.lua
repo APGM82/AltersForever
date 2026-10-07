@@ -16,6 +16,7 @@ local OPTIONS = {
     button      = true,
     buttonAngle = 225,
     sorts       = {},
+    collapsed   = {},       -- bolsas contraidas en la ficha
     theme       = ns.DEFAULT_THEME,
     scale       = 1,
     mailWarning = true,
@@ -236,13 +237,15 @@ local function ScanContainers(list)
     me.containers = me.containers or {}
     for _, bag in ipairs(list) do
         local size = GetContainerNumSlots(bag) or 0
-        local bagInfo = { size = size, free = 0, items = {}, link = BagLink(bag) }
+        local bagInfo = { size = size, free = 0, items = {}, slots = {}, link = BagLink(bag) }
         for slot = 1, size do
             local info = GetContainerItemInfo(bag, slot)
             if info and info.itemID then
                 local count = info.stackCount or 1
                 counts[info.itemID] = (counts[info.itemID] or 0) + count
                 bagInfo.items[info.itemID] = (bagInfo.items[info.itemID] or 0) + count
+                -- casilla a casilla, para pintar la bolsa como es
+                bagInfo.slots[slot] = { info.itemID, count, info.hyperlink }
                 Remember(info.itemID, info.hyperlink)
             else
                 bagInfo.free = bagInfo.free + 1
@@ -1138,16 +1141,19 @@ local function Border(frame, size)
         { "TOPLEFT", "BOTTOMLEFT", size, 0, "x" },
         { "TOPRIGHT", "BOTTOMRIGHT", -size, 0, "x" },
     }
+    local lines = {}
     for _, side in ipairs(sides) do
         local line = Skin(frame:CreateTexture(nil, "BACKGROUND"), "border")
         line:SetPoint(side[1])
         line:SetPoint(side[2])
         if side[5] == "y" then line:SetHeight(size) else line:SetWidth(size) end
+        table.insert(lines, line)
     end
+    return lines
 end
 
 local function Box(parent, faceRole)
-    Border(parent, 1)
+    parent.lines = Border(parent, 1)
     local face = Skin(parent:CreateTexture(nil, "BORDER"), faceRole)
     face:SetPoint("TOPLEFT", 1, -1)
     face:SetPoint("BOTTOMRIGHT", -1, 1)
@@ -1576,7 +1582,6 @@ local DOLL_RIGHT = { "HandsSlot", "WaistSlot", "LegsSlot", "FeetSlot", "Finger0S
 local DOLL_BOTTOM = { "MainHandSlot", "SecondaryHandSlot", "RangedSlot" }
 local DOLL_SLOT, DOLL_STEP = 26, 28
 
-local BAG_SLOT = 32
 local BAG_ICONS = {
     [-1] = "Interface\\Icons\\INV_Misc_Key_03",
     [0]  = "Interface\\Buttons\\Button-Backpack-Up",
@@ -1597,41 +1602,130 @@ local FILTERS = {
     { "all",  "All" },
 }
 
--- en bolsas y banco apaga en vez de quitar
-local DIM_SEARCH = { bags = true, bank = true }
+local PLACE_ICONS = {
+    bags = "Interface\\Buttons\\Button-Backpack-Up",
+    bank = "Interface\\Icons\\INV_Box_02",
+    mail = "Interface\\Icons\\INV_Letter_15",
+    worn = "Interface\\Icons\\INV_Chest_Chain",
+    ah   = "Interface\\Icons\\INV_Misc_Coin_01",
+}
 
-local function CharacterItems(c, filter, query)
-    local found, list = {}, {}
-    query = strtrim(query or ""):lower()
-    for _, place in ipairs(PLACES) do
-        if filter == "all" or filter == place[1] then
-            for id, count in pairs(c[place[1]] or {}) do
-                local name = ItemName(id) or ("item:" .. id)
-                local match = query == "" or name:lower():find(query, 1, true)
-                if match or DIM_SEARCH[filter] then
-                    local entry = found[id]
-                    if not entry then
-                        entry = { id = id, name = name, total = 0, parts = {}, dim = not match }
-                        found[id] = entry
-                        table.insert(list, entry)
-                    end
-                    entry.total = entry.total + count
-                    table.insert(entry.parts, format("%s %d", L[place[2]], count))
-                end
+local function Matches(id, query)
+    if query == "" then return true end
+    local name = ItemName(id) or ""
+    return name:lower():find(query, 1, true) ~= nil
+end
+
+-- una bolsa tal como esta, con sus huecos
+local function ContainerGroup(c, bag, query, seen)
+    local info = c.containers and c.containers[bag]
+    if not info then return end
+    local group = { key = "bag" .. bag, info = info, slots = {}, count = format("%d/%d", info.size - info.free, info.size) }
+    local id = info.link and tonumber(info.link:match("item:(%d+)"))
+    if id then
+        group.title = info.link:match("%[(.-)%]") or ItemName(id)
+        group.icon = C_Item.GetItemIconByID(id)
+        group.quality = C_Item.GetItemQualityByID(id)
+    else
+        group.title = BAG_NAMES[bag] or BAG_NAMES.bank
+        group.icon = BAG_ICONS[bag] or BAG_ICONS.bank
+    end
+
+    local function Add(itemID, count, link)
+        seen[itemID] = true
+        table.insert(group.slots, { id = itemID, total = count, link = link, dim = not Matches(itemID, query) })
+    end
+    if info.slots then
+        for slot = 1, info.size do
+            local item = info.slots[slot]
+            if item then
+                Add(item[1], item[2], item[3])
+            else
+                table.insert(group.slots, { empty = true })
             end
         end
+    else
+        -- guardado antes de 1.20: sin el orden de las casillas
+        group.unsorted = true
+        local ids = {}
+        for itemID in pairs(info.items or {}) do table.insert(ids, itemID) end
+        table.sort(ids, function(a, b) return (ItemName(a) or "") < (ItemName(b) or "") end)
+        for _, itemID in ipairs(ids) do Add(itemID, info.items[itemID]) end
+        for _ = 1, info.free or 0 do table.insert(group.slots, { empty = true }) end
     end
-    table.sort(list, function(a, b) return a.name < b.name end)
-    return list
+    return group
+end
+
+-- correo, equipado y subastas van juntos, por nombre
+local function PlaceGroup(c, place, title, query, seen)
+    local group = { key = place, title = title, icon = PLACE_ICONS[place], slots = {} }
+    for id, count in pairs(c[place] or {}) do
+        if Matches(id, query) then
+            seen[id] = true
+            table.insert(group.slots, { id = id, total = count, name = ItemName(id) or "" })
+        end
+    end
+    if #group.slots == 0 then return end
+    table.sort(group.slots, function(a, b) return a.name < b.name end)
+    group.count = #group.slots
+    return group
+end
+
+local function CharacterGroups(c, filter, query)
+    local groups, seen = {}, {}
+    query = strtrim(query or ""):lower()
+    local function Containers(place, list, title)
+        local any
+        for _, bag in ipairs(list) do
+            local group = ContainerGroup(c, bag, query, seen)
+            if group then
+                table.insert(groups, group)
+                any = true
+            end
+        end
+        -- sin bolsas guardadas, al menos lo que lleva
+        if not any then
+            local group = PlaceGroup(c, place, title, query, seen)
+            if group then table.insert(groups, group) end
+        end
+    end
+    if filter == "all" or filter == "bags" then Containers("bags", BAGS, L["Bags"]) end
+    if filter == "all" or filter == "bank" then Containers("bank", BANK, L["Bank"]) end
+    for _, place in ipairs({ { "mail", "Mail" }, { "worn", "Equipped" }, { "ah", "Auction" } }) do
+        if filter == "all" or filter == place[1] then
+            local group = PlaceGroup(c, place[1], L[place[2]], query, seen)
+            if group then table.insert(groups, group) end
+        end
+    end
+    -- con un solo sitio y sin bolsas, el separador sobra
+    if #groups == 1 and not groups[1].info then groups[1].title = nil end
+    local unique = 0
+    for _ in pairs(seen) do unique = unique + 1 end
+    groups.unique = unique
+    return groups
 end
 
 -- casillas como las de la bolsa
 local SLOT, GAP = 37, 5
+local HEADER, GROUP_GAP = 26, 6
+
+-- el arte del juego si el cliente lo trae
+local function SetArt(texture, atlas, file)
+    if atlas and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas) then
+        texture:SetAtlas(atlas)
+        return true
+    end
+    if file then
+        texture:SetTexture(file)
+        return true
+    end
+end
 
 local function SetSlotItem(slot, item, count)
     slot.item = item
     slot.icon:SetTexture(C_Item.GetItemIconByID(item) or 134400)
     slot.icon:SetDesaturated(false)
+    slot.icon:Show()
     slot.count:SetText(count and count > 1 and count or "")
     local quality = C_Item.GetItemQualityByID(item)
     local color = quality and quality >= 2 and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
@@ -1643,15 +1737,30 @@ local function SetSlotItem(slot, item, count)
     end
 end
 
+-- hueco libre de la bolsa
+local function SetSlotEmpty(slot)
+    slot.item = nil
+    slot.icon:Hide()
+    slot.quality:Hide()
+    slot.count:SetText("")
+end
+
 -- item puede ser un id o un enlace
 local function MakeSlot(parent, size)
     local slot = CreateFrame("Button", nil, parent)
     slot:SetSize(size, size)
-    Box(slot, "box")
+    slot.face = Box(slot, "box")
+
+    -- tema Blizzard: fondo y marco de las casillas de las bolsas
+    slot.art = slot:CreateTexture(nil, "BACKGROUND", nil, 1)
+    slot.art:SetAllPoints()
+    SetArt(slot.art, "bags-item-slot64", "Interface\\PaperDoll\\UI-Backpack-EmptySlot")
+    slot.frame = slot:CreateTexture(nil, "OVERLAY", nil, -1)
+    slot.frame:SetSize(size * 64 / 37, size * 64 / 37)
+    slot.frame:SetPoint("CENTER", 0, -1 * size / 37)
+    slot.frame:SetTexture("Interface\\Buttons\\UI-Quickslot2")
 
     slot.icon = slot:CreateTexture(nil, "ARTWORK")
-    slot.icon:SetPoint("TOPLEFT", 2, -2)
-    slot.icon:SetPoint("BOTTOMRIGHT", -2, 2)
     slot.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
     slot.quality = slot:CreateTexture(nil, "OVERLAY")
@@ -1662,6 +1771,20 @@ local function MakeSlot(parent, size)
     slot.count:SetPoint("BOTTOMRIGHT", -3, 3)
 
     slot.SetItem = SetSlotItem
+    slot.SetEmpty = SetSlotEmpty
+    slot.SetNative = function(self, on)
+        self.art:SetShown(on)
+        self.frame:SetShown(on)
+        self.face:SetShown(not on)
+        for _, line in ipairs(self.lines) do line:SetShown(not on) end
+        local inset = on and 0 or 2
+        self.icon:ClearAllPoints()
+        self.icon:SetPoint("TOPLEFT", inset, -inset)
+        self.icon:SetPoint("BOTTOMRIGHT", -inset, inset)
+    end
+    slot:SetNative(theme.native)
+    table.insert(natives, slot)
+
     slot:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
     slot:SetScript("OnEnter", function(self)
         if not self.item and not self.empty then return end
@@ -1685,18 +1808,119 @@ local function MakeSlot(parent, size)
     return slot
 end
 
-local function MakeGrid(parent, top, cols, rows)
+-- separador de cada bolsa: icono, nombre, huecos y la raya de debajo
+local function MakeGroupHeader(parent)
+    local header = CreateFrame("Button", nil, parent)
+    header:SetHeight(HEADER)
+
+    header.toggle = header:CreateTexture(nil, "ARTWORK")
+    header.toggle:SetSize(14, 14)
+    header.toggle:SetPoint("LEFT", 0, 1)
+
+    header.icon = header:CreateTexture(nil, "ARTWORK")
+    header.icon:SetSize(18, 18)
+    header.icon:SetPoint("LEFT", header.toggle, "RIGHT", 4, 0)
+    header.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    header.iconBorder = header:CreateTexture(nil, "OVERLAY")
+    header.iconBorder:SetTexture("Interface\\Common\\WhiteIconFrame")
+    header.iconBorder:SetPoint("TOPLEFT", header.icon, -1, 1)
+    header.iconBorder:SetPoint("BOTTOMRIGHT", header.icon, 1, -1)
+
+    header.title = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    header.title:SetPoint("LEFT", header.icon, "RIGHT", 7, 0)
+    header.title:SetJustifyH("LEFT")
+
+    header.count = header:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    header.count:SetPoint("RIGHT", -GAP - 4, 1)
+
+    header.line = header:CreateTexture(nil, "ARTWORK")
+    header.line:SetPoint("BOTTOMLEFT", 0, 2)
+    header.line:SetPoint("BOTTOMRIGHT", -GAP, 2)
+    header.atlas = SetArt(header.line, "Options_HorizontalDivider")
+    if header.atlas then
+        header.line:SetHeight(2)
+    else
+        header.line:SetColorTexture(1, 1, 1, 1)
+        header.line:SetHeight(1)
+    end
+
+    header.Set = function(self, group)
+        self.group = group
+        self.icon:SetTexture(group.icon or 134400)
+        local color = group.quality and group.quality >= 2 and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[group.quality]
+        if color then
+            self.iconBorder:SetVertexColor(color.r, color.g, color.b)
+            self.title:SetTextColor(color.r, color.g, color.b)
+        else
+            self.iconBorder:SetVertexColor(0.6, 0.6, 0.6)
+            local c = theme.header
+            self.title:SetTextColor(c[1], c[2], c[3])
+        end
+        self.title:SetText(group.title)
+        self.count:SetText(group.count or "")
+        local collapsed = db.options.collapsed[group.key]
+        self.toggle:SetTexture(collapsed and "Interface\\Buttons\\UI-PlusButton-Up" or "Interface\\Buttons\\UI-MinusButton-Up")
+        local d = theme.dim
+        self.count:SetTextColor(d[1], d[2], d[3])
+        -- la raya del juego en el tema Blizzard, la del tema en los demas
+        if theme.native then
+            if self.atlas then
+                self.line:SetVertexColor(1, 1, 1, 1)
+            else
+                self.line:SetVertexColor(1, 0.82, 0, 0.45)
+            end
+        else
+            local b = theme.border
+            self.line:SetVertexColor(b[1], b[2], b[3], 0.8)
+        end
+    end
+
+    header:SetHighlightTexture("Interface\\Buttons\\UI-Listbox-Highlight2", "ADD")
+    header:GetHighlightTexture():SetAlpha(0.25)
+    header:SetScript("OnEnter", function(self)
+        local group = self.group
+        if not group then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if group.info and group.info.link then
+            GameTooltip:SetHyperlink(group.info.link)
+        else
+            GameTooltip:SetText(group.title)
+        end
+        if group.info then
+            GameTooltip:AddLine(format(L["%d of %d slots free"], group.info.free, group.info.size), 1, 1, 1)
+        end
+        if group.unsorted then
+            GameTooltip:AddLine(L["Open it with this character to see it slot by slot."], 1, 0.82, 0, true)
+        end
+        GameTooltip:AddLine(L["Click to collapse or expand, Shift-click for all."], 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+    end)
+    -- contraer una, o todas con Mayus
+    header:SetScript("OnClick", function(self)
+        local group, collapsed = self.group, db.options.collapsed
+        if not group then return end
+        local fold = not collapsed[group.key] or nil
+        if IsShiftKeyDown() then
+            for _, other in ipairs(parent.groups or {}) do
+                if other.key then collapsed[other.key] = fold end
+            end
+        else
+            collapsed[group.key] = fold
+        end
+        parent:Refresh()
+        if GameTooltip:IsOwned(self) then self:GetScript("OnEnter")(self) end
+    end)
+    header:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return header
+end
+
+-- grupos con su separador; la rueda baja de fila en fila
+local function MakeGrid(parent, top, cols, height)
     local grid = CreateFrame("Frame", nil, parent)
     grid:SetPoint("TOPLEFT", 12, top)
-    grid:SetSize(cols * (SLOT + GAP), rows * (SLOT + GAP))
+    grid:SetSize(cols * (SLOT + GAP), height)
     grid.offset = 0
-    grid.slots = {}
-
-    for i = 1, cols * rows do
-        local slot = MakeSlot(grid, SLOT)
-        slot:SetPoint("TOPLEFT", ((i - 1) % cols) * (SLOT + GAP), -math.floor((i - 1) / cols) * (SLOT + GAP))
-        grid.slots[i] = slot
-    end
+    grid.slots, grid.headers = {}, {}
 
     grid:EnableMouseWheel(true)
     grid:SetScript("OnMouseWheel", function(self, delta)
@@ -1704,24 +1928,77 @@ local function MakeGrid(parent, top, cols, rows)
         self:Refresh()
     end)
 
-    function grid:Refresh()
-        local items = self.source()
-        local lastRow = math.max(0, math.ceil(#items / cols) - rows)
-        self.offset = math.max(0, math.min(self.offset, lastRow))
-        for i, slot in ipairs(self.slots) do
-            local entry = items[i + self.offset * cols]
-            if entry then
-                slot:SetItem(entry.id, entry.total)
-                local lit = self.highlight and self.highlight[entry.id]
-                local dim = self.highlight and not lit or (not self.highlight and entry.dim)
-                slot:SetAlpha(dim and 0.2 or 1)
-                if lit then slot:LockHighlight() else slot:UnlockHighlight() end
-                slot:Show()
-            else
-                slot:Hide()
+    local function Rows(groups)
+        local rows = {}
+        for _, group in ipairs(groups) do
+            local folded = group.title and db.options.collapsed[group.key]
+            if group.title then table.insert(rows, { header = group, height = HEADER }) end
+            for from = 1, folded and 0 or #group.slots, cols do
+                table.insert(rows, { group = group, from = from, height = SLOT + GAP })
             end
+            rows[#rows].height = rows[#rows].height + GROUP_GAP
         end
-        if self.after then self.after(items, lastRow > 0) end
+        return rows
+    end
+
+    function grid:Refresh()
+        local groups = self.source()
+        self.groups = groups
+        local rows = Rows(groups)
+
+        -- hasta donde se puede bajar sin dejar hueco abajo
+        local first, used = #rows + 1, 0
+        for i = #rows, 1, -1 do
+            if used + rows[i].height > height + GAP + GROUP_GAP then break end
+            used = used + rows[i].height
+            first = i
+        end
+        local lastOffset = math.max(0, first - 1)
+        self.offset = math.max(0, math.min(self.offset, lastOffset))
+
+        local y, nSlots, nHeaders = 0, 0, 0
+        for i = self.offset + 1, #rows do
+            local row = rows[i]
+            if y + (row.header and HEADER or SLOT) > height then break end
+            if row.header then
+                nHeaders = nHeaders + 1
+                local header = self.headers[nHeaders]
+                if not header then
+                    header = MakeGroupHeader(self)
+                    self.headers[nHeaders] = header
+                end
+                header:ClearAllPoints()
+                header:SetPoint("TOPLEFT", 0, -y)
+                header:SetPoint("RIGHT", self, "RIGHT")
+                header:Set(row.header)
+                header:Show()
+            else
+                for k = 0, cols - 1 do
+                    local entry = row.group.slots[row.from + k]
+                    if not entry then break end
+                    nSlots = nSlots + 1
+                    local slot = self.slots[nSlots]
+                    if not slot then
+                        slot = MakeSlot(self, SLOT)
+                        self.slots[nSlots] = slot
+                    end
+                    slot:ClearAllPoints()
+                    slot:SetPoint("TOPLEFT", k * (SLOT + GAP), -y)
+                    if entry.empty then
+                        slot:SetEmpty()
+                    else
+                        slot:SetItem(entry.link or entry.id, entry.total)
+                    end
+                    slot:SetAlpha(entry.dim and 0.2 or 1)
+                    slot:Show()
+                end
+            end
+            y = y + row.height
+        end
+        for i = nSlots + 1, #self.slots do self.slots[i]:Hide() end
+        for i = nHeaders + 1, #self.headers do self.headers[i]:Hide() end
+
+        if self.after then self.after(groups, lastOffset > 0) end
     end
     return grid
 end
@@ -1968,81 +2245,17 @@ local function BuildCharacterPage(page)
     search:SetScript("OnEnterPressed", search.ClearFocus)
     page.search = search
 
-    local items = MakeGrid(page, -96, 17, 6)
+    local items = MakeGrid(page, -96, 17, 6 * (SLOT + GAP) + 36)
 
-    local bagRow = CreateFrame("Frame", nil, page)
-    bagRow:SetPoint("TOPLEFT", items, "BOTTOMLEFT", 0, -4)
-    bagRow:SetSize(17 * (SLOT + GAP), BAG_SLOT)
-    local divider = Skin(bagRow:CreateTexture(nil, "ARTWORK"), "border")
-    divider:SetPoint("BOTTOMLEFT", bagRow, "TOPLEFT", 0, 1)
-    divider:SetPoint("BOTTOMRIGHT", bagRow, "TOPRIGHT", -GAP, 1)
-    divider:SetHeight(1)
-    bagRow.slots = {}
-    for i = 1, 17 do
-        local slot = MakeSlot(bagRow, BAG_SLOT)
-        slot:SetPoint("TOPLEFT", (i - 1) * (SLOT + GAP) + (SLOT - BAG_SLOT) / 2, 0)
-        slot:SetScript("OnEnter", function(self)
-            local bag = self.bag
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            if bag.link then
-                GameTooltip:SetHyperlink(bag.link)
-            else
-                GameTooltip:SetText(self.label)
-            end
-            GameTooltip:AddLine(format(L["%d of %d slots free"], bag.free, bag.size), 1, 1, 1)
-            GameTooltip:Show()
-            items.highlight = bag.items
-            items:Refresh()
-        end)
-        slot:SetScript("OnLeave", function()
-            GameTooltip:Hide()
-            items.highlight = nil
-            items:Refresh()
-        end)
-        bagRow.slots[i] = slot
-    end
+    local bagHint = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "dim")
+    bagHint:SetPoint("TOP", items, "TOP", 0, -60)
+    bagHint:SetWidth(420)
 
-    local bagHint = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "dim")
-    bagHint:SetPoint("LEFT", bagRow, "LEFT", 4, 0)
-
-    bagRow.Update = function(c, filter)
-        local list = {}
-        local function Add(bags)
-            for _, bag in ipairs(bags) do
-                if c.containers and c.containers[bag] then table.insert(list, bag) end
-            end
-        end
-        if filter == "all" or filter == "bags" then Add(BAGS) end
-        if filter == "all" and #list > 0 then table.insert(list, false) end
-        if filter == "all" or filter == "bank" then Add(BANK) end
-        if list[#list] == false then list[#list] = nil end
-
-        for i, slot in ipairs(bagRow.slots) do
-            local bag = list[i]
-            local bagInfo = bag and c.containers[bag]
-            slot.bag = bagInfo
-            if bagInfo then
-                if bagInfo.link then
-                    slot:SetItem(bagInfo.link)
-                else
-                    slot.item = nil
-                    slot.icon:SetTexture(BAG_ICONS[bag] or BAG_ICONS.bank)
-                    slot.icon:SetDesaturated(false)
-                    slot.quality:Hide()
-                end
-                slot.label = BAG_NAMES[bag] or BAG_NAMES.bank
-                slot.count:SetText(bagInfo.free)
-                slot:Show()
-            else
-                slot:Hide()
-            end
-        end
-        bagRow:SetShown(#list > 0)
-
+    local function UpdateHint(c, filter)
         local hint
         if filter == "bank" and not (c.containers and c.containers[BANK[1]]) then
             hint = L["Open the bank with this character to see its bags."]
-        elseif filter == "bags" and #list == 0 then
+        elseif filter == "bags" and not next(c.bags or {}) and not (c.containers and c.containers[0]) then
             hint = L["Log in with this character once to see its bags."]
         end
         bagHint:SetText(hint or "")
@@ -2113,7 +2326,7 @@ local function BuildCharacterPage(page)
             if slot.name then slot.name:SetAlpha(alpha) end
         end
     end
-    items.source = function() return CharacterItems(window.detail, window.filter, search:GetText()) end
+    items.source = function() return CharacterGroups(window.detail, window.filter, search:GetText()) end
     search:SetScript("OnTextChanged", function()
         items.offset = 0
         RefreshWindow()
@@ -2121,10 +2334,10 @@ local function BuildCharacterPage(page)
 
     local footer = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "dim")
     footer:SetPoint("BOTTOMLEFT", 16, 14)
-    items.after = function(list, more)
+    items.after = function(groups, more)
         local c = window.detail
         local bank = c.bankSeen and format(L["%s ago"], Duration(time() - c.bankSeen)) or L["never"]
-        local text = format(L["%d different items"], #list) .. "    " .. L["Bank seen"] .. ": " .. bank
+        local text = format(L["%d different items"], groups.unique) .. "    " .. L["Bank seen"] .. ": " .. bank
         if more then text = text .. "    " .. L["mouse wheel to see more"] end
         footer:SetText(text)
     end
@@ -2330,7 +2543,6 @@ local function BuildCharacterPage(page)
             infoTable:Hide()
             items:Hide()
             doll:Hide()
-            bagRow:Hide()
             bagHint:Hide()
             if talentsShown then talents.Update(c) else legacy.Update(c) end
             return
@@ -2345,7 +2557,6 @@ local function BuildCharacterPage(page)
             end
             items:Hide()
             doll:Hide()
-            bagRow:Hide()
             bagHint:Hide()
             infoTable:Refresh()
             return
@@ -2354,11 +2565,8 @@ local function BuildCharacterPage(page)
         local worn = window.filter == "worn"
         items:SetShown(not worn)
         doll:SetShown(worn)
-        bagRow.Update(c, window.filter)
-        if worn then
-            bagRow:Hide()
-            bagHint:Hide()
-        end
+        UpdateHint(c, window.filter)
+        if worn then bagHint:Hide() end
         if worn then
             if c == me then ScanWorn() end
             doll.Update(c, search:GetText())

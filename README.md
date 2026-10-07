@@ -19,9 +19,10 @@ in-game character window. The icons next to the name switch between items,
 talents, legacy trees, reputation, skills, PvE/PvP, currency, attributes and
 the numbers from the game's statistics window. Talents and legacy trees show
 the points each character has spent, and PvE/PvP starts with the instances and
-world bosses it is saved to. Items can be shown as a bag-style grid, filtered by bags, bank, mail, equipped
-or auction. Equipped gear is laid out like the paper doll. Hovering one of the
-bags in the row under the grid lights up what's inside it.
+world bosses it is saved to. Items are shown bag by bag, each bag under its own
+divider with its name and how full it is, slot for slot as it is in the game,
+empty slots included. They can be filtered by bags, bank, mail, equipped or
+auction. Equipped gear is laid out like the paper doll.
 
 Professions shows the ranks of every character side by side. Click one to see
 its recipes, coloured by how likely they are to give a skill-up, with their
