@@ -84,9 +84,18 @@ local function MoneyChange(copper)
     return "|cffff5050-|r" .. Money(-copper)
 end
 
--- oro al empezar el dia y la semana (desde el lunes)
+-- la semana va de reinicio a reinicio del juego (miercoles en Europa)
+local function WeekStart()
+    local left = C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset and C_DateAndTime.GetSecondsUntilWeeklyReset()
+    if not left or left <= 0 then return nil, nil end
+    -- redondeada a la hora para que no baile entre llamadas
+    return math.floor((time() + left - 7 * 86400) / 3600 + 0.5) * 3600, left
+end
+
+-- oro al empezar el dia y la semana
 local function MarkGold(c)
-    local day, week = date("%Y-%m-%d"), date("%Y-%W")
+    local day, week = date("%Y-%m-%d"), WeekStart()
+    if not week then return end
     if c.goldDay ~= day then c.goldDay, c.goldDayStart = day, c.money end
     if c.goldWeek ~= week then c.goldWeek, c.goldWeekStart = week, c.money end
 end
@@ -97,7 +106,7 @@ local function GoldToday(c)
 end
 
 local function GoldWeek(c)
-    if c.goldWeek ~= date("%Y-%W") then return 0 end
+    if not c.goldWeek or c.goldWeek ~= WeekStart() then return 0 end
     return (c.money or 0) - (c.goldWeekStart or c.money or 0)
 end
 
@@ -1414,7 +1423,7 @@ local function CharacterTooltip(c)
             GameTooltip:AddDoubleLine(L["Gold in mail"], Money(c.mailMoney), 1, 0.82, 0, 1, 1, 1)
         end
     end
-    if c.goldWeek == date("%Y-%W") then
+    if c.goldWeek and c.goldWeek == WeekStart() then
         GameTooltip:AddDoubleLine(L["Gold today"], MoneyChange(GoldToday(c)), 1, 0.82, 0, 1, 1, 1)
         GameTooltip:AddDoubleLine(L["Gold this week"], MoneyChange(GoldWeek(c)), 1, 0.82, 0, 1, 1, 1)
     end
@@ -2998,6 +3007,11 @@ local function BuildWindow()
     end
     local total = Skin(window.pages[1]:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
     total:SetPoint("BOTTOMRIGHT", -28, 14)
+    local totalHover = CreateFrame("Frame", nil, window.pages[1])
+    totalHover:SetPoint("TOPRIGHT", total, "TOPRIGHT", 0, 3)
+    totalHover:SetPoint("BOTTOMRIGHT", total, "BOTTOMRIGHT", 0, -3)
+    totalHover:SetWidth(1)
+    totalHover:EnableMouse(true)
     chars.after = function(list)
         local money = 0
         for _, c in ipairs(list) do money = money + (c.money or 0) end
@@ -3011,7 +3025,23 @@ local function BuildWindow()
             .. format(L["%d characters, total %s"], #list, Money(money))
         if inMail > 0 then text = text .. "  " .. format(L["(+%s in mail)"], Money(inMail)) end
         total:SetText(text)
+        totalHover:SetWidth(total:GetStringWidth())
     end
+    -- desde cuando cuentan hoy y la semana
+    totalHover:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText(L["Gold"])
+        GameTooltip:AddLine(L["Gold today counts from midnight."], 1, 1, 1, true)
+        local start, left = WeekStart()
+        if start then
+            local weekday = CALENDAR_WEEKDAY_NAMES and CALENDAR_WEEKDAY_NAMES[date("*t", start).wday] or ""
+            GameTooltip:AddLine(format(L["Gold this week counts from the weekly reset: %s."],
+                strtrim(weekday .. " " .. date("%d/%m %H:%M", start))), 1, 1, 1, true)
+            GameTooltip:AddLine(format(L["Next reset in %s."], Duration(left)), 0.6, 0.6, 0.6)
+        end
+        GameTooltip:Show()
+    end)
+    totalHover:SetScript("OnLeave", function() GameTooltip:Hide() end)
     window.pages[1].table = chars
 
     -- profesiones
