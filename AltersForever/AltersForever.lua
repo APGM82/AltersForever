@@ -211,11 +211,84 @@ local RefreshWindow
 -- dibujadas o con plantillas del juego
 local natives = {}
 
+-- tema Forever: piezas de un pixel, degradados y brillos, todo con la textura blanca del juego
+-- en una tabla: el archivo esta en el limite de 200 locales de Lua 5.1
+local forever = {
+    WHITE = "Interface\\Buttons\\WHITE8X8",
+    FONT  = "Fonts\\MORPHEUS.TTF",
+    displays = {},
+}
+-- Morpheus solo trae letras latinas; en ruso, coreano y chino los encabezados siguen con la letra del juego
+forever.LATIN = { enUS = true, enGB = true, esES = true, esMX = true, deDE = true, frFR = true, itIT = true, ptBR = true }
+forever.ok = forever.LATIN[(GetLocale and GetLocale()) or "enUS"]
+
+function forever.Plain(parent, layer, sub)
+    local t = parent:CreateTexture(nil, layer or "BORDER", nil, sub or 0)
+    t:SetTexture(forever.WHITE)
+    return t
+end
+
+function forever.Gradient(t, orientation, r1, g1, b1, a1, r2, g2, b2, a2)
+    if t.SetGradient and CreateColor then
+        t:SetGradient(orientation, CreateColor(r1, g1, b1, a1), CreateColor(r2, g2, b2, a2))
+    elseif t.SetGradientAlpha then
+        t:SetGradientAlpha(orientation, r1, g1, b1, a1, r2, g2, b2, a2)
+    else
+        t:SetVertexColor(r1, g1, b1, (a1 + a2) / 2)
+    end
+end
+
+function forever.PaintDisplay(fs)
+    if theme.forever and forever.ok then
+        fs:SetFont(forever.FONT, fs.displaySize, "")
+    else
+        fs:SetFont(fs.baseFont[1], fs.baseFont[2], fs.baseFont[3] or "")
+    end
+end
+
+-- un encabezado que en el tema Forever lleva la letra de los titulos
+function forever.Display(fs, size)
+    fs.baseFont = { fs:GetFont() }
+    fs.displaySize = size
+    table.insert(forever.displays, fs)
+    forever.PaintDisplay(fs)
+    return fs
+end
+
+function forever.FadeIn(frame, duration, fromScale)
+    if not frame.fadeIn then
+        local group = frame:CreateAnimationGroup()
+        local alpha = group:CreateAnimation("Alpha")
+        alpha:SetFromAlpha(0)
+        alpha:SetToAlpha(1)
+        alpha:SetDuration(duration)
+        alpha:SetSmoothing("OUT")
+        if fromScale then
+            local scale = group:CreateAnimation("Scale")
+            scale:SetDuration(duration)
+            scale:SetSmoothing("OUT")
+            if scale.SetScaleFrom then
+                scale:SetScaleFrom(fromScale, fromScale)
+                scale:SetScaleTo(1, 1)
+            else
+                scale:SetScale(1 / fromScale, 1 / fromScale)
+            end
+            if scale.SetOrigin then scale:SetOrigin("CENTER", 0, 0) end
+        end
+        frame.fadeIn = group
+    end
+    frame.fadeIn:Stop()
+    frame.fadeIn:Play()
+end
+
 local function ApplyTheme(key)
     theme = FindTheme(key)
     db.options.theme = theme.key
     for _, object in ipairs(skinned) do
         Paint(object)
+    end
+    for _, fs in ipairs(forever.displays) do
+        forever.PaintDisplay(fs)
     end
     for _, widget in ipairs(natives) do
         widget:SetNative(theme.native)
@@ -1290,12 +1363,54 @@ local function MakeButton(parent, width, label, onClick)
     btn.label = Skin(btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
     btn.label:SetPoint("CENTER")
     btn.label:SetText(label)
+
+    -- tema Forever: el cuerpo se oscurece hacia abajo, una raya de luz arriba, una de sombra debajo del boton
+    -- y, con el raton encima, el marco en oro y un baño de luz dorada
+    local shade = forever.Plain(btn, "BORDER", 1)
+    shade:SetPoint("TOPLEFT", 1, -1)
+    shade:SetPoint("BOTTOMRIGHT", -1, 1)
+    local gloss = forever.Plain(btn, "BORDER", 2)
+    gloss:SetPoint("TOPLEFT", 1, -1)
+    gloss:SetPoint("TOPRIGHT", -1, -1)
+    gloss:SetHeight(1)
+    gloss:SetVertexColor(1, 0.92, 0.70, 0.16)
+    local drop = forever.Plain(btn, "BACKGROUND", -2)
+    drop:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 1, 0)
+    drop:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", -1, 0)
+    drop:SetHeight(1)
+    drop:SetVertexColor(0, 0, 0, 0.55)
+    local wash = forever.Plain(btn, "ARTWORK", -1)
+    wash:SetPoint("TOPLEFT", 1, -1)
+    wash:SetPoint("BOTTOMRIGHT", -1, 1)
+    wash:SetBlendMode("ADD")
+    forever.Gradient(wash, "VERTICAL", 1, 0.82, 0, 0.18, 1, 0.82, 0, 0.03)
+    wash:Hide()
+    local function Press(down)
+        if down then
+            forever.Gradient(shade, "VERTICAL", 1, 1, 1, 0.05, 0, 0, 0, 0.40)
+        else
+            forever.Gradient(shade, "VERTICAL", 0, 0, 0, 0.40, 1, 1, 1, 0.05)
+        end
+        gloss:SetShown(not down and btn.forever)
+    end
+    Press(false)
+    btn.foreverArt = { shade, gloss, drop }
+
     btn:SetScript("OnEnter", function(self)
         if self.face.role == "button" then Skin(self.face, "hover") end
+        if theme.forever and not theme.native then
+            wash:Show()
+            for _, line in ipairs(self.lines) do line:SetColorTexture(1, 0.86, 0.42, 1) end
+        end
     end)
     btn:SetScript("OnLeave", function(self)
         if self.face.role == "hover" then Skin(self.face, "button") end
+        wash:Hide()
+        Press(false)
+        for _, line in ipairs(self.lines) do Paint(line) end
     end)
+    btn:SetScript("OnMouseDown", function() if btn.forever then Press(true) end end)
+    btn:SetScript("OnMouseUp", function() if btn.forever then Press(false) end end)
     btn:SetScript("OnClick", onClick)
 
     local native = CreateFrame("Button", nil, btn, "UIPanelButtonTemplate")
@@ -1315,6 +1430,8 @@ local function MakeButton(parent, width, label, onClick)
         self.native:SetShown(on)
         self.face:SetShown(not on)
         self.label:SetShown(not on)
+        self.forever = theme.forever and not on
+        for _, t in ipairs(self.foreverArt) do t:SetShown(self.forever) end
     end
     btn:SetNative(theme.native)
     table.insert(natives, btn)
@@ -1348,13 +1465,19 @@ local function MakeCheck(parent, label, key, onChange)
     native:SetPoint("CENTER")
     native:SetScript("OnClick", function() check:GetScript("OnClick")(check) end)
     check.Update = function()
-        mark:SetText(db.options[key] and "|cff66dd66x|r" or "")
-        native:SetChecked(db.options[key] and true or false)
+        local on = db.options[key]
+        if on and theme.forever then
+            mark:SetText("|TInterface\\Buttons\\UI-CheckBox-Check:18:18|t")
+        else
+            mark:SetText(on and "|cff66dd66x|r" or "")
+        end
+        native:SetChecked(on and true or false)
     end
     check.SetNative = function(_, on)
         native:SetShown(on)
         face:SetShown(not on)
         mark:SetShown(not on)
+        if db then check.Update() end
     end
     check:SetNative(theme.native)
     table.insert(natives, check)
@@ -1419,6 +1542,13 @@ local function MakeTable(parent, columns, top, rows)
         local light = Skin(row:CreateTexture(nil, "BORDER"), "row")
         light:SetAllPoints()
         light:Hide()
+        -- tema Forever: una raya dorada a la izquierda de la fila bajo el raton
+        local accent = forever.Plain(row, "ARTWORK")
+        accent:SetPoint("TOPLEFT")
+        accent:SetPoint("BOTTOMLEFT")
+        accent:SetWidth(2)
+        accent:SetVertexColor(1, 0.82, 0, 0.85)
+        accent:Hide()
 
         row.cells = {}
         for _, col in ipairs(columns) do
@@ -1432,6 +1562,7 @@ local function MakeTable(parent, columns, top, rows)
 
         row:SetScript("OnEnter", function(self)
             light:Show()
+            accent:SetShown(theme.forever and self.data and true or false)
             if t.onEnter and self.data then
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 t.onEnter(self.data)
@@ -1440,6 +1571,7 @@ local function MakeTable(parent, columns, top, rows)
         end)
         row:SetScript("OnLeave", function()
             light:Hide()
+            accent:Hide()
             GameTooltip:Hide()
         end)
         row:SetScript("OnClick", function(self, mouse)
@@ -1954,7 +2086,7 @@ local function MakeGroupHeader(parent)
     header.iconBorder:SetPoint("TOPLEFT", header.icon, -1, 1)
     header.iconBorder:SetPoint("BOTTOMRIGHT", header.icon, 1, -1)
 
-    header.title = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    header.title = forever.Display(header:CreateFontString(nil, "OVERLAY", "GameFontNormal"), 15)
     header.title:SetPoint("LEFT", header.icon, "RIGHT", 7, 0)
     header.title:SetJustifyH("LEFT")
 
@@ -2303,7 +2435,7 @@ function InfoRows(c, section)
 end
 
 local function BuildCharacterPage(page)
-    local name = page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    local name = forever.Display(page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"), 20)
     name:SetPoint("TOPLEFT", 16, -8)
 
     local back = MakeButton(page, 100, L["Back"], function() window.ShowTab(window.lastTab or 1) end)
@@ -2539,7 +2671,7 @@ local function BuildCharacterPage(page)
             tree:SetPoint("BOTTOM")
             tree:SetWidth(TREE_WIDTH - 8)
             Border(tree, 1)
-            tree.title = Skin(tree:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "header")
+            tree.title = forever.Display(Skin(tree:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "header"), 16)
             tree.title:SetPoint("TOP", 0, -6)
             tree.slots, tree.lines = {}, {}
             talents.trees[t] = tree
@@ -2752,7 +2884,7 @@ local function RecipeList(c, skillLine, query)
 end
 
 local function BuildRecipesPage(page)
-    local name = page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    local name = forever.Display(page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"), 20)
     name:SetPoint("TOPLEFT", 16, -8)
 
     local back = MakeButton(page, 100, L["Back"], function() window.ShowTab(window.lastTab or 2) end)
@@ -2890,7 +3022,7 @@ local function SetScale(value)
 end
 
 local function BuildOptionsTab(page)
-    local header = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "header")
+    local header = forever.Display(Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "header"), 17)
     header:SetPoint("TOPLEFT", 16, -8)
     header:SetText(L["Options"])
 
@@ -2904,7 +3036,7 @@ local function BuildOptionsTab(page)
     Check("Show hidden characters", "showHidden", 16, -128, function() RefreshWindow() end)
 
     -- tooltip a la derecha
-    local tipHeader = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "header")
+    local tipHeader = forever.Display(Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "header"), 17)
     tipHeader:SetPoint("TOPLEFT", 400, -8)
     tipHeader:SetText(L["Item tooltips"])
     Check("Show who has each item in tooltips", "tooltip", 400, -32)
@@ -2954,19 +3086,19 @@ local function BuildOptionsTab(page)
     local alphaPlus = MakeButton(page, 22, "+", function() SetAlpha(db.options.bgAlpha + 0.1) end)
     alphaPlus:SetPoint("LEFT", alphaValue, "RIGHT", 6, 0)
 
-    local themeHeader = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "header")
+    local themeHeader = forever.Display(Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "header"), 17)
     themeHeader:SetPoint("TOPLEFT", 16, -228)
     themeHeader:SetText(L["Theme"])
 
     page.themeButtons = {}
     for i, entry in ipairs(ns.themes) do
-        local btn = MakeButton(page, 84, L[entry.name], function() ApplyTheme(entry.key) end)
-        btn:SetPoint("TOPLEFT", 16 + (i - 1) * 88, -252)
+        local btn = MakeButton(page, 76, L[entry.name], function() ApplyTheme(entry.key) end)
+        btn:SetPoint("TOPLEFT", 16 + (i - 1) * 79, -252)
         btn.key = entry.key
         table.insert(page.themeButtons, btn)
     end
 
-    local commandsHeader = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "header")
+    local commandsHeader = forever.Display(Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "header"), 17)
     commandsHeader:SetPoint("TOPLEFT", 16, -288)
     commandsHeader:SetText(L["Commands"])
 
@@ -2986,9 +3118,11 @@ local TABS = { "Characters", "Professions", "Cooldowns", "Guild", "Search", "Opt
 -- ficha y recetas no tienen pestana
 local function ShowTab(index)
     if window.tabs[index] then window.lastTab = index end
+    local changed = window.tab ~= index
     window.tab = index
     for i, page in ipairs(window.pages) do
         page:SetShown(i == index)
+        if i == index and changed and theme.forever then forever.FadeIn(page, 0.12) end
         if window.tabs[i] then
             SetSelected(window.tabs[i], i == window.lastTab)
         end
@@ -3097,7 +3231,7 @@ function guildBank.Groups(guild, query)
 end
 
 function guildBank.BuildPage(page)
-    local title = page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    local title = forever.Display(page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"), 20)
     title:SetPoint("TOPLEFT", 16, -8)
     local info = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
     info:SetPoint("TOPLEFT", 16, -33)
@@ -3358,9 +3492,64 @@ local function BuildWindow()
     face:SetPoint("TOPLEFT", 2, -2)
     face:SetPoint("BOTTOMRIGHT", -2, 2)
 
-    window.title = window:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    -- tema Forever: cristal oscuro (mas claro arriba), viñeta en los bordes, una segunda raya de bronce por dentro,
+    -- luz dorada detras del titulo y una raya dorada bajo las pestañas que se apaga hacia los lados
+    local art = {}
+    local function Add(t) table.insert(art, t); return t end
+    local glass = Add(forever.Plain(window, "BORDER", 1))
+    glass:SetPoint("TOPLEFT", 2, -2)
+    glass:SetPoint("BOTTOMRIGHT", -2, 2)
+    forever.Gradient(glass, "VERTICAL", 0, 0, 0, 0.30, 1, 0.90, 0.70, 0.05)
+    local VIGNETTE = 48
+    for _, side in ipairs({ "LEFT", "RIGHT", "TOP", "BOTTOM" }) do
+        local v = Add(forever.Plain(window, "BORDER", 2))
+        if side == "LEFT" or side == "RIGHT" then
+            v:SetPoint("TOP" .. side, side == "LEFT" and 2 or -2, -2)
+            v:SetPoint("BOTTOM" .. side, side == "LEFT" and 2 or -2, 2)
+            v:SetWidth(VIGNETTE)
+            if side == "LEFT" then forever.Gradient(v, "HORIZONTAL", 0, 0, 0, 0.40, 0, 0, 0, 0)
+            else forever.Gradient(v, "HORIZONTAL", 0, 0, 0, 0, 0, 0, 0, 0.40) end
+        else
+            v:SetPoint(side .. "LEFT", 2, side == "TOP" and -2 or 2)
+            v:SetPoint(side .. "RIGHT", -2, side == "TOP" and -2 or 2)
+            v:SetHeight(VIGNETTE)
+            if side == "TOP" then forever.Gradient(v, "VERTICAL", 0, 0, 0, 0, 0, 0, 0, 0.40)
+            else forever.Gradient(v, "VERTICAL", 0, 0, 0, 0.40, 0, 0, 0, 0) end
+        end
+    end
+    local inner = {
+        { "TOPLEFT", 5, -5, "TOPRIGHT", -5, -5, "y" },
+        { "BOTTOMLEFT", 5, 5, "BOTTOMRIGHT", -5, 5, "y" },
+        { "TOPLEFT", 5, -5, "BOTTOMLEFT", 5, 5, "x" },
+        { "TOPRIGHT", -5, -5, "BOTTOMRIGHT", -5, 5, "x" },
+    }
+    for _, e in ipairs(inner) do
+        local line = Add(forever.Plain(window, "BORDER", 3))
+        line:SetPoint(e[1], e[2], e[3])
+        line:SetPoint(e[4], e[5], e[6])
+        if e[7] == "y" then line:SetHeight(1) else line:SetWidth(1) end
+        line:SetVertexColor(0.78, 0.61, 0.10, 0.30)
+    end
+    -- dos mitades: de nada a oro en el centro y de vuelta a nada
+    local function Fading(layer, y, width, height, alpha, add)
+        for half = 1, 2 do
+            local t = Add(forever.Plain(window, layer, 4))
+            t:SetSize(width / 2, height)
+            t:SetPoint(half == 1 and "TOPRIGHT" or "TOPLEFT", window, "TOP", 0, y)
+            if add then t:SetBlendMode("ADD") end
+            if half == 1 then forever.Gradient(t, "HORIZONTAL", 1, 0.82, 0, 0, 1, 0.82, 0, alpha)
+            else forever.Gradient(t, "HORIZONTAL", 1, 0.82, 0, alpha, 1, 0.82, 0, 0) end
+        end
+    end
+    Fading("BORDER", -6, 320, 26, 0.10, true)
+    Fading("ARTWORK", -62, 716, 1, 0.55)
+
+    window.title = forever.Display(window:CreateFontString(nil, "OVERLAY", "GameFontNormal"), 20)
     window.title:SetPoint("TOP", 0, -12)
     window.title:SetText(TitleText())
+    window:HookScript("OnShow", function(self)
+        if theme.forever then forever.FadeIn(self, 0.18, 0.97) end
+    end)
 
     local close = MakeButton(window, 22, "x", function() window:Hide() end)
     close:SetPoint("TOPRIGHT", -8, -8)
@@ -3385,9 +3574,10 @@ local function BuildWindow()
         end
         nativeClose:SetShown(on)
         close:SetShown(not on)
-        -- la barra de titulo del marco del juego es mas baja
+        for _, t in ipairs(art) do t:SetShown(theme.forever and not on) end
+        -- la barra de titulo del marco del juego es mas baja; la letra de Forever es mas alta
         window.title:ClearAllPoints()
-        window.title:SetPoint("TOP", 0, on and -5 or -12)
+        window.title:SetPoint("TOP", 0, on and -5 or (theme.forever and -10 or -12))
     end
     window:SetNative(theme.native)
     table.insert(natives, window)

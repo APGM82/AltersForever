@@ -133,6 +133,25 @@ ns.themes = {
         text       = { 1.00, 1.00, 1.00 },
         dim        = { 0.60, 0.60, 0.60 },
     },
+    -- forever = true: cristal oscuro con lineas de bronce, botones con relieve, brillos dorados y la letra de
+    -- los titulos de mision (Morpheus) en los encabezados
+    {
+        key        = "forever",
+        name       = "Forever",
+        forever    = true,
+        border     = { 0.47, 0.36, 0.14, 1 },
+        background = { 0.055, 0.052, 0.048, 1 },
+        button     = { 0.13, 0.12, 0.105, 1 },
+        hover      = { 0.19, 0.17, 0.13, 1 },
+        selected   = { 0.36, 0.27, 0.08, 1 },
+        box        = { 0.035, 0.034, 0.03, 1 },
+        row        = { 1, 0.82, 0, 0.09 },
+        stripe     = { 1, 1, 1, 0.025 },
+        title      = { 1.00, 0.84, 0.37 },
+        header     = { 1.00, 0.82, 0.00 },
+        text       = { 0.92, 0.90, 0.86 },
+        dim        = { 0.55, 0.53, 0.50 },
+    },
 }
 
 ns.DEFAULT_THEME = "blizzard"
