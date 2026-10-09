@@ -878,63 +878,84 @@ local function Percent(value)
     return format("%.2f%%", value or 0)
 end
 
+-- en combate los valores llegan secretos y no se pueden sumar: se lee al salir
+local statsWaiting
+
 -- lista ya traducida, como la del panel de personaje
 local function ScanStats()
-    local list = {}
+    if InCombatLockdown() then
+        statsWaiting = true
+        return
+    end
+    local list, secret = {}, false
     local function Header(text) table.insert(list, { header = text }) end
     local function Stat(label, value) table.insert(list, { label, value }) end
+    -- alguno puede llegar secreto tambien fuera de combate
+    local function Read(...)
+        if issecretvalue then
+            for i = 1, select("#", ...) do
+                if issecretvalue((select(i, ...))) then
+                    secret = true
+                    return
+                end
+            end
+        end
+        return ...
+    end
 
     Header(L["General"])
-    Stat(HEALTH or L["Health"], UnitHealthMax("player"))
-    local mana = UnitPowerMax("player", 0)
+    Stat(HEALTH or L["Health"], Read(UnitHealthMax("player")))
+    local mana = Read(UnitPowerMax("player", 0))
     if mana and mana > 0 then Stat(MANA or L["Mana"], mana) end
 
     Header(L["Attributes"])
     for i = 1, 5 do
-        local _, value = UnitStat("player", i)
+        local _, value = Read(UnitStat("player", i))
         Stat(_G["SPELL_STAT" .. i .. "_NAME"] or ("stat " .. i), value)
     end
 
     Header(L["Melee"])
-    local low, high = UnitDamage("player")
+    local low, high = Read(UnitDamage("player"))
     Stat(L["Damage"], format("%d - %d", low or 0, high or 0))
-    local base, plus, minus = UnitAttackPower("player")
+    local base, plus, minus = Read(UnitAttackPower("player"))
     Stat(L["Attack power"], (base or 0) + (plus or 0) + (minus or 0))
-    Stat(L["Critical strike"], Percent(GetCritChance()))
-    Stat(L["Hit bonus"], Percent(GetHitModifier and GetHitModifier() or 0))
+    Stat(L["Critical strike"], Percent(Read(GetCritChance())))
+    Stat(L["Hit bonus"], Percent(GetHitModifier and Read(GetHitModifier()) or 0))
 
-    local _, rangedLow, rangedHigh = UnitRangedDamage("player")
+    local _, rangedLow, rangedHigh = Read(UnitRangedDamage("player"))
     if rangedHigh and rangedHigh > 0 then
         Header(L["Ranged"])
         Stat(L["Damage"], format("%d - %d", rangedLow, rangedHigh))
-        local rBase, rPlus, rMinus = UnitRangedAttackPower("player")
+        local rBase, rPlus, rMinus = Read(UnitRangedAttackPower("player"))
         Stat(L["Attack power"], (rBase or 0) + (rPlus or 0) + (rMinus or 0))
-        Stat(L["Critical strike"], Percent(GetRangedCritChance()))
+        Stat(L["Critical strike"], Percent(Read(GetRangedCritChance())))
     end
 
     Header(L["Spells"])
     local power = 0
-    for school = 2, 7 do power = math.max(power, GetSpellBonusDamage(school) or 0) end
+    for school = 2, 7 do power = math.max(power, Read(GetSpellBonusDamage(school)) or 0) end
     Stat(L["Spell power"], power)
-    Stat(L["Healing"], GetSpellBonusHealing() or 0)
-    Stat(L["Spell critical strike"], Percent(GetSpellCritChance(2)))
-    local regen, casting = GetManaRegen()
+    Stat(L["Healing"], Read(GetSpellBonusHealing()) or 0)
+    Stat(L["Spell critical strike"], Percent(Read(GetSpellCritChance(2))))
+    local regen, casting = Read(GetManaRegen())
     if mana and mana > 0 then
         Stat(L["Mana every 5 s"], format("%d (%d %s)", (regen or 0) * 5, (casting or 0) * 5, L["casting"]))
     end
 
     Header(L["Defence"])
-    local _, armor = UnitArmor("player")
+    local _, armor = Read(UnitArmor("player"))
     Stat(ARMOR or L["Armour"], armor or 0)
-    Stat(L["Dodge"], Percent(GetDodgeChance()))
-    Stat(L["Parry"], Percent(GetParryChance()))
-    Stat(L["Block"], Percent(GetBlockChance()))
+    Stat(L["Dodge"], Percent(Read(GetDodgeChance())))
+    Stat(L["Parry"], Percent(Read(GetParryChance())))
+    Stat(L["Block"], Percent(Read(GetBlockChance())))
 
     Header(L["Resistances"])
     for i, key in ipairs({ "Fire", "Nature", "Frost", "Shadow", "Arcane" }) do
-        local _, value = UnitResistance("player", i + 1)
+        local _, value = Read(UnitResistance("player", i + 1))
         Stat(L[key], value or 0)
     end
+    statsWaiting = secret
+    if secret then return end
     me.stats = list
 end
 
@@ -3929,6 +3950,7 @@ function events.UNIT_STATS(unit) if unit == "player" then QueueStats() end end
 events.UNIT_RESISTANCES = events.UNIT_STATS
 events.UNIT_MAXHEALTH = events.UNIT_STATS
 function events.PLAYER_DAMAGE_DONE_MODS() QueueStats() end
+function events.PLAYER_REGEN_ENABLED() if statsWaiting then QueueStats() end end
 function events.TRAIT_CONFIG_UPDATED() QueueTalents() end
 events.PLAYER_TALENT_UPDATE = events.TRAIT_CONFIG_UPDATED
 events.CHARACTER_POINTS_CHANGED = events.TRAIT_CONFIG_UPDATED

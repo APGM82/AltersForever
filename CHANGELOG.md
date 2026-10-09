@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- No more "attempt to perform arithmetic on a secret number value" error in combat. Attributes are read when the fight ends instead.
+
 ## 1.30
 
 - New Forever theme, now the default: dark glass with bronze lines, buttons with relief and a gold edge under the mouse, a gold bar on the row under the mouse, and headings in the quest-title font. If you had already picked a theme you keep it; the Options tab or `/alts theme forever` switches to it.
