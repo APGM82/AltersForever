@@ -29,7 +29,7 @@ local OPTIONS = {
     bgAlpha     = 1,
 }
 
-local DATA_VERSION = 1
+local DATA_VERSION = 2
 local MAIL_DAYS = 30
 local MAIL_WARNING_DAYS = 3
 
@@ -562,6 +562,35 @@ local function CheckCooldowns()
     end
 end
 
+-- la 1.30 guardaba la espera global en todas las recetas: tantas a la vez no son de verdad
+local function ForgetFakeCooldowns(c)
+    local bySkill = {}
+    for id, ready in pairs(c.cooldowns or {}) do
+        local skill = db.recipes[id] and db.recipes[id].skill
+        if skill then
+            bySkill[skill] = bySkill[skill] or {}
+            table.insert(bySkill[skill], { id = id, ready = ready })
+        end
+    end
+    for skill, list in pairs(bySkill) do
+        local known = 0
+        for _ in pairs(c.recipes and c.recipes[skill] or {}) do known = known + 1 end
+        table.sort(list, function(a, b) return a.ready < b.ready end)
+        local first = 1
+        for i = 2, #list + 1 do
+            if i > #list or list[i].ready - list[first].ready > 2 then
+                if known > 0 and (i - first) * 2 > known then
+                    for j = first, i - 1 do
+                        c.cooldowns[list[j].id] = nil
+                        if c.cooldownsWarned then c.cooldownsWarned[list[j].id] = nil end
+                    end
+                end
+                first = i
+            end
+        end
+    end
+end
+
 -- subastas: se piden al abrir la casa de subastas
 local AH_TIME_LEFT = { [0] = 1800, [1] = 7200, [2] = 43200, [3] = 172800 }
 
@@ -655,6 +684,8 @@ end
 -- al abrir la profesion la lista tarda en cambiar
 local recipeIndex
 local scanTries = 0
+-- la espera global (tambien la de la varita) sale en todas las recetas; las de verdad son de horas
+local SHORT_COOLDOWN = 60
 
 local function ScanRecipes()
     if C_TradeSkillUI.IsTradeSkillLinked() or C_TradeSkillUI.IsTradeSkillGuild() or C_TradeSkillUI.IsNPCCrafting() then return end
@@ -702,9 +733,9 @@ local function ScanRecipes()
             end
             local cooldown = C_TradeSkillUI.GetRecipeCooldown(id)
             -- una vez vista con espera se sigue mostrando, como lista
-            if cooldown and cooldown > 0 then
+            if cooldown and cooldown > SHORT_COOLDOWN then
                 me.cooldowns[id] = time() + cooldown
-            elseif me.cooldowns[id] then
+            elseif me.cooldowns[id] and not (cooldown and cooldown > 0) then
                 me.cooldowns[id] = math.min(me.cooldowns[id], time())
             end
         end
@@ -4092,6 +4123,9 @@ loader:SetScript("OnEvent", function(self, event, ...)
 
     if (db.version or 0) < 1 then
         for _, c in pairs(db.chars) do c.guid = nil end
+    end
+    if (db.version or 0) < 2 then
+        for _, c in pairs(db.chars) do ForgetFakeCooldowns(c) end
     end
     db.version = DATA_VERSION
 

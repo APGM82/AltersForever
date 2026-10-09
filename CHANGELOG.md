@@ -3,6 +3,7 @@
 ## Unreleased
 
 - No more "attempt to perform arithmetic on a secret number value" error in combat. Attributes are read when the fight ends instead.
+- A wand shot, or any other cast, could put every recipe of a profession in Cooldowns. Fixed, and the recipes it put there are gone.
 
 ## 1.30
 
