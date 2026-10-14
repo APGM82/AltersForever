@@ -2996,16 +2996,30 @@ local function BuildRecipesPage(page)
         GameTooltip:AddLine(" ")
         if not entry.reagents then
             GameTooltip:AddLine(L["Open the profession again to read the materials."], 0.6, 0.6, 0.6, true)
+        else
+            GameTooltip:AddLine(L["Materials"], theme.header[1], theme.header[2], theme.header[3])
+            for _, reagent in ipairs(entry.reagents) do
+                local id, need = reagent[1], reagent[2]
+                local have = ((c.bags and c.bags[id]) or 0) + ((c.bank and c.bank[id]) or 0)
+                local color = have >= need and "|cff40bf40" or "|cffff5050"
+                GameTooltip:AddDoubleLine(format("|T%s:14:14|t %s x%d", C_Item.GetItemIconByID(id) or 134400, ItemName(id) or ("item:" .. id), need),
+                    format(L["%shas %d|r"], color, have), 1, 1, 1, 1, 1, 1)
+            end
+        end
+        GameTooltip:AddLine(L["Shift-click: link it in chat"], 0.6, 0.6, 0.6)
+    end
+    -- como en la ventana de la profesion: el objeto que sale, o la receta si no hace ninguno (encantamientos)
+    recipes.onClick = function(entry)
+        if not IsModifiedClick() then return end
+        local link = entry.item and select(2, C_Item.GetItemInfo(entry.item))
+        if link then
+            HandleModifiedItemClick(link)
             return
         end
-        GameTooltip:AddLine(L["Materials"], theme.header[1], theme.header[2], theme.header[3])
-        for _, reagent in ipairs(entry.reagents) do
-            local id, need = reagent[1], reagent[2]
-            local have = ((c.bags and c.bags[id]) or 0) + ((c.bank and c.bank[id]) or 0)
-            local color = have >= need and "|cff40bf40" or "|cffff5050"
-            GameTooltip:AddDoubleLine(format("|T%s:14:14|t %s x%d", C_Item.GetItemIconByID(id) or 134400, ItemName(id) or ("item:" .. id), need),
-                format(L["%shas %d|r"], color, have), 1, 1, 1, 1, 1, 1)
-        end
+        -- de otro personaje puede que el juego no la sepa enlazar
+        local ok, recipeLink = pcall(C_TradeSkillUI.GetRecipeLink, entry.id)
+        link = (ok and recipeLink) or C_Spell.GetSpellLink(entry.id)
+        if link and IsModifiedClick("CHATLINK") then ChatEdit_InsertLink(link) end
     end
     search:SetScript("OnTextChanged", function()
         recipes.offset = 0
