@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.32
+
+- Shift-click a recipe in Professions to link it in chat, as in the profession window: the item it makes, or the recipe itself when it makes none (enchantments).
+
 ## 1.31
 
 - No more "attempt to perform arithmetic on a secret number value" error in combat. Attributes are read when the fight ends instead.
