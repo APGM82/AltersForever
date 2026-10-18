@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.33
+
+- Legacy trees are drawn right again. A patch changed the spacing between their talents, and some ended up in the wrong row or column.
+- When a patch changes a class's talents, characters of that class that have not logged in since show "Log in with this character once to read this" instead of their old points on the wrong talents.
+
 ## 1.32
 
 - Shift-click a recipe in Professions to link it in chat, as in the profession window: the item it makes, or the recipe itself when it makes none (enchantments).
