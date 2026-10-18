@@ -1049,8 +1049,17 @@ local function ReadTalentNodes(configID, treeID)
             if spell then
                 local targets = {}
                 for _, edge in ipairs(node.visibleEdges or {}) do table.insert(targets, edge.targetNode) end
+                -- todas las entradas y no solo la activa, que cambia de un pj a otro
+                local spells = {}
+                for _, id in ipairs(node.entryIDs or {}) do
+                    local e = C_Traits.GetEntryInfo(configID, id)
+                    local d = e and e.definitionID and C_Traits.GetDefinitionInfo(e.definitionID)
+                    table.insert(spells, d and (d.spellID or d.overriddenSpellID) or 0)
+                end
+                table.sort(spells)
                 table.insert(nodes, { id = nodeID, x = node.posX, y = node.posY, rank = node.currentRank or 0,
-                    max = node.maxRanks or 1, spell = spell, entry = entryID, targets = targets })
+                    max = node.maxRanks or 1, spell = spell, entry = entryID, targets = targets,
+                    key = nodeID .. ":" .. (node.maxRanks or 1) .. ":" .. table.concat(spells, "/") })
             end
         end
     end
@@ -1086,6 +1095,30 @@ local function PlaceTalents(nodes, step, ranks)
     return tree, spent
 end
 
+-- huella de un arbol: cambia si un parche cambia algun talento o su maximo, no si solo lo mueve
+local function TreeSig(nodes)
+    local keys = {}
+    for _, node in ipairs(nodes) do table.insert(keys, node.key) end
+    table.sort(keys)
+    local text, hash = table.concat(keys, ","), 0
+    for i = 1, #text do hash = (hash * 31 + text:byte(i)) % 4294967296 end
+    return format("%08x", hash)
+end
+
+-- los rangos de un pj solo se pueden pintar sobre el arbol con el que se leyeron
+local function RanksFit(layout, sig, data)
+    if data.sig and sig then return data.sig == sig end
+    -- datos de antes de la huella: que cada punto caiga en un talento que lo admita
+    local max = {}
+    for _, tree in ipairs(layout) do
+        for _, talent in ipairs(tree) do max[talent.id] = talent.max end
+    end
+    for id, rank in pairs(data.ranks or {}) do
+        if rank > (max[id] or 0) then return false end
+    end
+    return true
+end
+
 local function ScanTalents()
     if not (C_ClassTalents and C_Traits) then return end
     local configID = C_ClassTalents.GetActiveConfigID()
@@ -1116,12 +1149,29 @@ local function ScanTalents()
     end
 
     local currency = C_Traits.GetTreeCurrencyInfo(configID, treeID, false)
+    local sig = TreeSig(nodes)
     db.talents[me.class] = trees
-    me.talents = { ranks = ranks, spent = spent, free = currency and currency[1] and currency[1].quantity or 0, seen = time() }
+    db.talentSigs[me.class] = sig
+    me.talents = { ranks = ranks, spent = spent, free = currency and currency[1] and currency[1].quantity or 0,
+        seen = time(), sig = sig }
 end
 
 -- arboles de legado: otra configuracion C_Traits, con una moneda comun a los tres
-local LEGACY_SYSTEM, LEGACY_STEP = 45, 750
+local LEGACY_SYSTEM = 45
+
+-- la separacion entre talentos la elige blizzard (750, luego 900): la distancia mas corta entre dos
+local function GridStep(nodes)
+    local step
+    for _, a in ipairs(nodes) do
+        for _, b in ipairs(nodes) do
+            local dx, dy = math.abs(a.x - b.x), math.abs(a.y - b.y)
+            if dx > 0 and (not step or dx < step) then step = dx end
+            if dy > 0 and (not step or dy < step) then step = dy end
+        end
+    end
+    return step or 900
+end
+
 -- en el orden de la ventana de legado, con el nombre que les da el juego
 local LEGACY_TREES = { { 1189, "LEGACY_TREE_PROGRESSION" }, { 1188, "LEGACY_TREE_ADVENTURE" }, { 1187, "LEGACY_TREE_PROFESSIONS" } }
 
@@ -1129,22 +1179,27 @@ local function ScanLegacy()
     if not (C_Traits and C_Traits.GetConfigIDBySystemID) then return end
     local configID = C_Traits.GetConfigIDBySystemID(LEGACY_SYSTEM)
     if not configID then return end
-    local trees, ranks, spent, currency = {}, {}, {}, nil
+    local trees, ranks, spent, currency, all = {}, {}, {}, nil, {}
     for t, entry in ipairs(LEGACY_TREES) do
         local nodes = {}
         for _, node in ipairs(ReadTalentNodes(configID, entry[1])) do
             -- nodos de relleno sin hechizo de verdad
-            if C_Spell.GetSpellName(node.spell) ~= UNKNOWN then table.insert(nodes, node) end
+            if C_Spell.GetSpellName(node.spell) ~= UNKNOWN then
+                table.insert(nodes, node)
+                table.insert(all, node)
+            end
         end
         if #nodes == 0 then return end
-        trees[t], spent[t] = PlaceTalents(nodes, LEGACY_STEP, ranks)
+        trees[t], spent[t] = PlaceTalents(nodes, GridStep(nodes), ranks)
         currency = currency or C_Traits.GetTreeCurrencyInfo(configID, entry[1], false)
     end
     -- el bote es de la cuenta; cada pj gasta el suyo por su cuenta
     currency = currency and currency[1] or {}
+    local sig = TreeSig(all)
     db.legacy = trees
+    db.legacySig = sig
     db.legacyPoints = currency.maxQuantity or db.legacyPoints
-    me.legacy = { ranks = ranks, spent = spent, seen = time() }
+    me.legacy = { ranks = ranks, spent = spent, seen = time(), sig = sig }
 end
 
 local talentsQueued
@@ -2827,7 +2882,9 @@ local function BuildCharacterPage(page)
     local talents = TreePanel(function(c)
         local data = c.talents
         local names = ns.trees[GetLocale()] or ns.trees.enUS
-        return data and db.talents[c.class], data, names[c.class] or {}, data and data.free
+        local layout = data and db.talents[c.class]
+        if layout and not RanksFit(layout, db.talentSigs[c.class], data) then layout = nil end
+        return layout, data, names[c.class] or {}, data and data.free
     end)
     local legacy = TreePanel(function(c)
         local names = {}
@@ -2835,7 +2892,9 @@ local function BuildCharacterPage(page)
         local data, used = c.legacy, 0
         for _, points in ipairs(data and data.spent or {}) do used = used + points end
         local total = db.legacyPoints or used
-        return data and db.legacy, data, names, math.max(total - used, 0), total
+        local layout = data and db.legacy
+        if layout and not RanksFit(layout, db.legacySig, data) then layout = nil end
+        return layout, data, names, math.max(total - used, 0), total
     end)
     page.talents = talents
 
@@ -4120,6 +4179,7 @@ loader:SetScript("OnEvent", function(self, event, ...)
     db.skillLines = db.skillLines or {}
     db.factions = db.factions or {}
     db.talents = db.talents or {}
+    db.talentSigs = db.talentSigs or {}
     db.statNames = db.statNames or {}
     db.guilds = db.guilds or {}
     db.probe = nil
