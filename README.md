@@ -64,7 +64,7 @@ Simplified and Traditional Chinese.
 
 ## Installation
 
-Put the `AltersForever` folder in `World of Warcraft\_classic_beta_\Interface\AddOns\`
+Put the `AltersForever` folder in `World of Warcraft\_forever_\Interface\AddOns\`
 and restart the game. Made for Forever 1.60.1 (`Interface: 16001`).
 
 ## License
