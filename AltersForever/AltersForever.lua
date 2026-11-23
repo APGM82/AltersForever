@@ -1390,8 +1390,11 @@ local DIFFICULTY_COLORS = { [0] = "|cffff8040", "|cffffff00", "|cff40bf40", "|cf
 local requiresPattern
 local function RequiredSkill(lines)
     if not requiresPattern then
-        local text = ITEM_MIN_SKILL or "Requires %s (%d)"
-        requiresPattern = "^" .. text:gsub("([%(%)%.%-%+%*%?%[%]%^%$])", "%%%1"):gsub("%%%%s", ".-"):gsub("%%%%d", "(%%d+)") .. "$"
+        -- "Requiere %s (%d)", "Benötigt %1$s (%2$d)": los huecos se marcan antes de escapar el resto, que
+        -- escapado "%s" ya no se puede distinguir (hasta 1.34 el patron no casaba nunca y todo pedia 0)
+        local text = (ITEM_MIN_SKILL or "Requires %s (%d)"):gsub("%%%d*%$?s", "\1"):gsub("%%%d*%$?d", "\2")
+        text = text:gsub("([%(%)%.%-%+%*%?%[%]%^%$])", "%%%1")
+        requiresPattern = "^" .. text:gsub("\1", ".-"):gsub("\2", "(%%d+)") .. "$"
     end
     for _, text in ipairs(lines) do
         local level = text:match(requiresPattern)
