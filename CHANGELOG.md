@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.34
+
+- The rested XP of logged-out characters was far too low. When you log out the game no longer says how much rested XP you have or whether you are in an inn or city, so every character was saved with none and as if it were out in the open, where it fills four times slower. Now the addon keeps what the game said while you played. Characters saved by an older version show their rested XP in gray, as a minimum, until you log in with them once.
+- Recipe items in tooltips now say who already knows them every time. The item was matched to its recipe by name, and about a third of patterns, formulas, plans and schematics are named differently from the recipe they teach ("Recipe: Transmute Iron to Gold" teaches "Transmute: Iron to Gold"; in Spanish almost half), so a character that already knew the recipe showed up under "Can learn it". Now each recipe item is matched to its recipe exactly.
+- Characters whose skill is too low for a recipe item now show under "Not enough skill yet", with their skill and the one it asks for. The required skill was never read from the tooltip, so they all showed up under "Can learn it".
+- Rest rate: hovering a character in the Characters tab, or its rested XP on the character page, shows how fast it fills up (15% of a level a day in an inn or city, a quarter of that elsewhere), when it will be full, and its ranks in the Well Rested legacy talent, which adds 4% per rank to both the rate and the cap. The rested XP of logged-out characters counts the talent too.
+- The section icons on the character page no longer run under the Back button. The realm only shows next to the name when you have characters on more than one, and a name that still does not fit ends in "...".
+- Auctions start below the Bags, Bank, Mail... buttons instead of on top of them.
+- Buttons are as wide as their text, and a text that does not fit ends in "..." instead of spilling out. The profession buttons on the recipe page shrink together when they do not fit in one row.
+- The "open the auction house with this character" message no longer stays over the bags after switching back to them.
+- Long guild names, the recipe search hint and the line under each name stay inside the window.
+
 ## 1.33
 
 - Legacy trees are drawn right again. A patch changed the spacing between their talents, and some ended up in the wrong row or column.
