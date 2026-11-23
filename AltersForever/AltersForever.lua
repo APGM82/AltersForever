@@ -33,7 +33,7 @@ local OPTIONS = {
     bgAlpha     = 1,
 }
 
-local DATA_VERSION = 2
+local DATA_VERSION = 3
 local MAIL_DAYS = 30
 local MAIL_WARNING_DAYS = 3
 
@@ -216,6 +216,9 @@ function rest.AddLines(c)
     if not rested then return end
     local cap = rest.Cap(c)
     GameTooltip:AddDoubleLine(L["Rested"], format("%d%% / %d%%", rest.Percent(rested), rest.Percent(cap)), 1, 0.82, 0, 1, 1, 1)
+    if c.restedUnsure then
+        GameTooltip:AddLine(L["At least this much. Log in with this character once to read it exactly."], 0.6, 0.6, 0.6, true)
+    end
     GameTooltip:AddDoubleLine(L["Rest rate"], rest.RateText(c), 1, 0.82, 0, 1, 1, 1)
     GameTooltip:AddLine(c.resting and L["In an inn or city. Elsewhere, a quarter of that."]
         or L["Out of an inn or city: a quarter of the rate there."], 0.6, 0.6, 0.6, true)
@@ -1289,6 +1292,7 @@ local function ScanPlayer()
     me.xp, me.xpMax = UnitXP("player"), UnitXPMax("player")
     me.rested = GetXPExhaustion() or 0
     me.resting = IsResting() and true or false
+    me.restedUnsure = nil
     me.zone = GetRealZoneText()
     me.lastSeen = time()
 end
@@ -1895,6 +1899,7 @@ local function RestedText(c)
     local rested = Rested(c)
     if not rested then return "-" end
     local color = rested >= rest.Cap(c) and "|cff66dd66" or "|cff8fb8ff"
+    if c.restedUnsure then color = "|cff999999" end
     return format("%s%d%%|r", color, rest.Percent(rested))
 end
 
@@ -4336,8 +4341,8 @@ function events.PLAYER_LOGOUT()
         me.playedAt = nil
     end
     me.zone = GetRealZoneText()
-    me.resting = IsResting() and true or false
-    me.rested = GetXPExhaustion() or 0
+    -- el descanso no se lee aqui: en PLAYER_LOGOUT el juego ya da nil y "sin descansar" (visto en Forever
+    -- el 23/11 en Ventormenta). Vale lo ultimo que dieron UPDATE_EXHAUSTION y PLAYER_UPDATE_RESTING
     me.lastSeen = time()
 end
 
@@ -4389,6 +4394,10 @@ loader:SetScript("OnEvent", function(self, event, ...)
     end
     if (db.version or 0) < 2 then
         for _, c in pairs(db.chars) do ForgetFakeCooldowns(c) end
+    end
+    -- hasta 1.34 se salia con descanso 0 y fuera de posada: lo guardado se queda corto hasta volver a entrar
+    if (db.version or 0) < 3 then
+        for _, c in pairs(db.chars) do c.restedUnsure = true end
     end
     db.version = DATA_VERSION
 
