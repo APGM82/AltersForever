@@ -18,4 +18,5 @@
 
 Locales.lua
 Themes.lua
+RecipeItems.lua
 AltersForever.lua

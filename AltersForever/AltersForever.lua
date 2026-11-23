@@ -1438,16 +1438,26 @@ local function ProfessionOf(c, skillLine)
     end
 end
 
+-- la receta que ensena el objeto: de RecipeItems.lua, porque el nombre del objeto a menudo no es el
+-- de la receta ("Patron: toga de lino rojo" ensena "Toga roja de lino"). Por el nombre solo los que
+-- trajo un parche posterior a la tabla
+local function RecipeIDsOfItem(itemID, lines)
+    local taught = ns.recipeItems and ns.recipeItems[itemID]
+    if taught then return { taught } end
+    local itemName = ItemName(itemID) or lines[1]
+    if not itemName then return end
+    return RecipeIDsByName(itemName:match("^[^:]+:%s*(.+)$") or itemName)
+end
+
 local function AddRecipeOwners(tooltip, itemID, data)
     if not db.options.tooltip or not itemID then return end
     local _, _, _, _, _, classID, subClassID = C_Item.GetItemInfoInstant(itemID)
     local skillLine = classID == 9 and RECIPE_SKILL[subClassID]
     if not skillLine then return end
-    local itemName = ItemName(itemID)
-    if not itemName then return end
-
-    local ids = RecipeIDsByName(itemName:match("^[^:]+:%s*(.+)$") or itemName)
-    local required = RequiredSkill(TooltipLines(tooltip, data)) or 0
+    local lines = TooltipLines(tooltip, data)
+    local ids = RecipeIDsOfItem(itemID, lines)
+    if not ids then return end
+    local required = RequiredSkill(lines) or 0
     local known, canLearn, later, unknown = {}, {}, {}, {}
     for _, c in ipairs(SortedChars()) do
         local prof = ProfessionOf(c, skillLine)
