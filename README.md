@@ -12,17 +12,18 @@ each once per character.
 
 `/alts` (or the minimap button) opens the window.
 
-The Characters tab lists everyone with their gold and rested XP, and the
-rested amount keeps going up while a character is logged out, the same way the
-game does it. Click a character to open its page, which works like the
-in-game character window. The icons next to the name switch between items,
-talents, legacy trees, reputation, skills, PvE/PvP, currency, attributes and
-the numbers from the game's statistics window. Talents and legacy trees show
-the points each character has spent, and PvE/PvP starts with the instances and
-world bosses it is saved to. Items are shown bag by bag, each bag under its own
-divider with its name and how full it is, slot for slot as it is in the game,
-empty slots included. They can be filtered by bags, bank, mail, equipped or
-auction. Equipped gear is laid out like the paper doll.
+The Characters tab lists everyone with their gold and rested XP, and the rested
+amount keeps going up while a character is logged out, the same way the game
+does it, Well Rested legacy talent included. Hovering a character shows how
+fast its rested XP fills up and when it will be full. Click a character to open
+its page, which works like the in-game character window. The icons next to the
+name switch between items, talents, legacy trees, reputation, skills, PvE/PvP,
+currency, attributes and the numbers from the game's statistics window. Talents
+and legacy trees show the points each character has spent, and PvE/PvP starts
+with the instances and world bosses it is saved to. Items are shown bag by bag,
+each bag under its own divider with its name and how full it is, slot for slot
+as it is in the game, empty slots included. They can be filtered by bags, bank,
+mail, equipped or auction. Equipped gear is laid out like the paper doll.
 
 The Guild tab shows the guild bank tab by tab, slot for slot as it is in the
 game, with its gold. It is read when you open the guild bank with any

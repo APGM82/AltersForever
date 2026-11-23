@@ -5,8 +5,12 @@ local ADDON, ns = ...
 local PREFIX = "Alters Forever: "
 local ROW_HEIGHT = 20
 local ROWS = 16
-local REST_PER_HOUR = 0.05 / 8      -- de barra, descansando; fuera, la cuarta parte
-local REST_CAP = 1.5
+-- descanso: 5 % de barra cada 8 h en posada o ciudad, la cuarta parte fuera, hasta barra y media.
+-- Bien descansado (legado, Aventura) suma un 4 % por rango al ritmo y al tope
+local rest = { HOUR = 0.05 / 8, OUTSIDE = 1 / 4, CAP = 1.5, TALENT = 1225478, NODE = 110301, PER_RANK = 0.04, MAX_RANK = 5 }
+
+-- medidas de la ventana; en una tabla, que no caben mas locales
+local ui = { WIDTH = 740 }
 
 local BAGS = { -1, 0, 1, 2, 3, 4, 5 }
 local BANK = { 6, 7, 8, 9, 10, 11, 12, 13, 14 }
@@ -160,15 +164,75 @@ local function Played(c)
     return played
 end
 
+-- rangos de Bien descansado; nil si aun no se ha leido el legado del pj
+function rest.Ranks(c)
+    local ranks = c.legacy and c.legacy.ranks
+    if not ranks then return end
+    local node = rest.NODE
+    for _, tree in ipairs(db.legacy or {}) do
+        for _, talent in ipairs(tree) do
+            if talent.spell == rest.TALENT then node = talent.id end
+        end
+    end
+    return ranks[node] or 0
+end
+
+function rest.Bonus(c) return (rest.Ranks(c) or 0) * rest.PER_RANK end
+
+-- barra por hora, segun donde se quedo
+function rest.Rate(c)
+    return rest.HOUR * (c.resting and 1 or rest.OUTSIDE) * (1 + rest.Bonus(c))
+end
+
+function rest.Cap(c) return rest.CAP * (1 + rest.Bonus(c)) end
+
+-- 1.5 * 1.2 da 1.7999...: redondeado, 180
+function rest.Percent(bars) return math.floor(bars * 100 + 0.5) end
+
+-- 15, 3,75 o 4,5: sin ceros de sobra y con la coma del idioma
+function rest.Number(x)
+    local text = format("%.2f", x):gsub("0+$", ""):gsub("%.$", "")
+    return (text:gsub("%.", DECIMAL_SEPERATOR or "."))
+end
+
 -- descanso estimado: lo guardado mas lo ganado desde que salio
 local function Rested(c)
     if not c.xpMax or c.xpMax == 0 or (c.level or 0) >= (db.maxLevel or 60) then return end
     local bars = (c.rested or 0) / c.xpMax
     if c ~= me and c.lastSeen then
-        local rate = c.resting and REST_PER_HOUR or REST_PER_HOUR / 4
-        bars = bars + (time() - c.lastSeen) / 3600 * rate
+        bars = bars + (time() - c.lastSeen) / 3600 * rest.Rate(c)
     end
-    return math.min(bars, REST_CAP)
+    return math.min(bars, rest.Cap(c))
+end
+
+-- "+15% al dia"
+function rest.RateText(c)
+    return format(L["+%s%% a day"], rest.Number(rest.Rate(c) * 24 * 100))
+end
+
+-- cuanto lleva, a que ritmo, cuando se llena y el talento de legado
+function rest.AddLines(c)
+    local rested = Rested(c)
+    if not rested then return end
+    local cap = rest.Cap(c)
+    GameTooltip:AddDoubleLine(L["Rested"], format("%d%% / %d%%", rest.Percent(rested), rest.Percent(cap)), 1, 0.82, 0, 1, 1, 1)
+    GameTooltip:AddDoubleLine(L["Rest rate"], rest.RateText(c), 1, 0.82, 0, 1, 1, 1)
+    GameTooltip:AddLine(c.resting and L["In an inn or city. Elsewhere, a quarter of that."]
+        or L["Out of an inn or city: a quarter of the rate there."], 0.6, 0.6, 0.6, true)
+    if rested >= cap then
+        GameTooltip:AddDoubleLine(L["Full in"], L["already full"], 1, 0.82, 0, 0.4, 0.87, 0.4)
+    else
+        GameTooltip:AddDoubleLine(L["Full in"], Duration((cap - rested) / rest.Rate(c) * 3600), 1, 0.82, 0, 1, 1, 1)
+    end
+    local name = C_Spell.GetSpellName(rest.TALENT) or "Well Rested"
+    local ranks = rest.Ranks(c)
+    if ranks then
+        local gray = ranks == 0 and 0.6 or 1
+        GameTooltip:AddDoubleLine(format("%s %d/%d", name, ranks, rest.MAX_RANK),
+            format(L["+%d%% rate and cap"], ranks * rest.PER_RANK * 100), 1, 0.82, 0, gray, gray, gray)
+    else
+        GameTooltip:AddDoubleLine(name, L["not read yet"], 1, 0.82, 0, 0.6, 0.6, 0.6)
+    end
 end
 
 -- ------------------------------------------------------------------- temas
@@ -1463,6 +1527,11 @@ local function Box(parent, faceRole)
     return face
 end
 
+-- lo que mide el texto entero, aunque su caja sea mas estrecha
+function ui.TextWidth(fs)
+    return (fs.GetUnboundedStringWidth or fs.GetStringWidth)(fs) or 0
+end
+
 local function MakeButton(parent, width, label, onClick)
     local btn = CreateFrame("Button", nil, parent)
     btn:SetSize(width, 22)
@@ -1531,6 +1600,25 @@ local function MakeButton(parent, width, label, onClick)
     btn.SetLabel = function(self, text)
         self.label:SetText(text)
         self.native:SetText(text)
+    end
+
+    -- el texto nunca se sale del boton: si no cabe, acaba en ...
+    local nativeText = native:GetFontString()
+    btn.label:SetWordWrap(false)
+    if nativeText then nativeText:SetWordWrap(false) end
+    local function Fit(self)
+        local room = math.max(self:GetWidth() - 10, 1)
+        self.label:SetWidth(room)
+        if nativeText then nativeText:SetWidth(room) end
+    end
+    btn:SetScript("OnSizeChanged", Fit)
+    Fit(btn)
+    -- tan ancho como su texto, entre min y max
+    btn.FitWidth = function(self, min, max)
+        local width = math.ceil(ui.TextWidth(self.label)) + 20
+        width = math.max(min or 0, math.min(width, max or width))
+        self:SetWidth(width)
+        return width
     end
     btn.SetNative = function(self, on)
         self.native:SetShown(on)
@@ -1709,8 +1797,7 @@ local function MakeTable(parent, columns, top, rows)
             header:SetText(header.title)
             if sortCol and key == sortCol.key then
                 header:SetText(header.title .. ARROWS[chosen.desc])
-                local measure = header.GetUnboundedStringWidth or header.GetStringWidth
-                if (measure(header) or 0) > header:GetWidth() then header:SetText(header.title) end
+                if ui.TextWidth(header) > header:GetWidth() then header:SetText(header.title) end
                 header:SetTextColor(theme.text[1], theme.text[2], theme.text[3])
             else
                 Paint(header)
@@ -1755,6 +1842,10 @@ local function CharacterTooltip(c)
         GameTooltip:AddDoubleLine(L["Experience"], format("%d / %d (%d%%)", c.xp or 0, c.xpMax, progress * 100), 1, 0.82, 0, 1, 1, 1)
     end
     if c.guild then GameTooltip:AddLine("<" .. c.guild .. ">", 0.6, 1, 0.6) end
+    if Rested(c) then
+        GameTooltip:AddLine(" ")
+        rest.AddLines(c)
+    end
     GameTooltip:AddLine(" ")
     if c.bagSlots then
         GameTooltip:AddDoubleLine(L["Free bag slots"], format("%d / %d", c.bagFree, c.bagSlots), 1, 0.82, 0, 1, 1, 1)
@@ -1790,8 +1881,8 @@ end
 local function RestedText(c)
     local rested = Rested(c)
     if not rested then return "-" end
-    local color = rested >= REST_CAP and "|cff66dd66" or "|cff8fb8ff"
-    return format("%s%d%%|r", color, rested * 100)
+    local color = rested >= rest.Cap(c) and "|cff66dd66" or "|cff8fb8ff"
+    return format("%s%d%%|r", color, rest.Percent(rested))
 end
 
 local function PlayedText(c)
@@ -2540,12 +2631,23 @@ function InfoRows(c, section)
     return rows
 end
 
+-- el reino solo hace falta con personajes en mas de uno
+function ui.Realm(c)
+    for _, other in pairs(db.chars) do
+        if other.realm and other.realm ~= c.realm then return " - " .. (c.realm or "?") end
+    end
+    return ""
+end
+
 local function BuildCharacterPage(page)
     local name = forever.Display(page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"), 20)
     name:SetPoint("TOPLEFT", 16, -8)
+    name:SetJustifyH("LEFT")
+    name:SetWordWrap(false)
 
     local back = MakeButton(page, 100, L["Back"], function() window.ShowTab(window.lastTab or 1) end)
     back:SetPoint("TOPRIGHT", -12, -6)
+    back:FitWidth(80)
 
     -- secciones como iconos junto al nombre, con borde dorado como los del minimapa
     local function SectionIcon(section)
@@ -2600,26 +2702,60 @@ local function BuildCharacterPage(page)
     CopyMicroIcon(TalentMicroButton or PlayerSpellsMicroButton, page.sectionButtons[2].icon)
     CopyMicroIcon(LegacyMicroButton, page.sectionButtons[3].icon)
 
+    -- hueco para el nombre: lo que dejan los iconos antes de Volver
+    local iconsWidth = #SECTIONS * 26 + (#SECTIONS - 1) * 4
+    local nameRoom = ui.WIDTH - 16 - 10 - iconsWidth - 10 - back:GetWidth() - 12
+
     local info = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
     info:SetPoint("TOPLEFT", 16, -33)
-    local stats = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
-    stats:SetPoint("TOPLEFT", 16, -48)
+    info:SetWidth(ui.WIDTH - 32)
+    info:SetJustifyH("LEFT")
+    info:SetWordWrap(false)
 
+    -- oro, descanso, jugado y visto; el descanso explica su ritmo con el raton encima
+    local stats = {}
+    for i = 1, 4 do
+        local piece = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
+        if i == 1 then
+            piece:SetPoint("TOPLEFT", 16, -48)
+        else
+            piece:SetPoint("LEFT", stats[i - 1], "RIGHT", 20, 0)
+        end
+        piece:SetWordWrap(false)
+        stats[i] = piece
+    end
+    local restHover = CreateFrame("Frame", nil, page)
+    restHover:SetPoint("TOPLEFT", stats[2], "TOPLEFT", 0, 3)
+    restHover:SetPoint("BOTTOMRIGHT", stats[2], "BOTTOMRIGHT", 0, -3)
+    restHover:EnableMouse(true)
+    restHover:SetScript("OnEnter", function(self)
+        if not Rested(window.detail) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+        rest.AddLines(window.detail)
+        GameTooltip:Show()
+    end)
+    restHover:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- tan anchos como su texto, uno detras de otro, y la busqueda en lo que queda
     page.filterButtons = {}
-    for i, filter in ipairs(FILTERS) do
+    local x = 16
+    for _, filter in ipairs(FILTERS) do
         local btn = MakeButton(page, 80, L[filter[2]], function()
             window.filter = filter[1]
             page.table.offset = 0
+            page.auctions.offset = 0
             RefreshWindow()
         end)
-        btn:SetPoint("TOPLEFT", 16 + (i - 1) * 86, -64)
+        btn:FitWidth(80)
+        btn:SetPoint("TOPLEFT", x, -64)
+        x = x + btn:GetWidth() + 6
         btn.key = filter[1]
         table.insert(page.filterButtons, btn)
     end
 
     local search = CreateFrame("EditBox", nil, page, "InputBoxTemplate")
-    search:SetSize(170, 20)
-    search:SetPoint("TOPLEFT", 16 + #FILTERS * 86 + 12, -65)
+    search:SetSize(math.max(ui.WIDTH - 26 - (x + 12), 100), 20)
+    search:SetPoint("TOPLEFT", x + 12, -65)
     search:SetAutoFocus(false)
     search:SetScript("OnEscapePressed", search.ClearFocus)
     search:SetScript("OnEnterPressed", search.ClearFocus)
@@ -2723,45 +2859,52 @@ local function BuildCharacterPage(page)
     end
     page.table = items
 
-    local infoTable = MakeTable(page, {
-        { key = "label", title = "", x = 4,   width = 330 },
-        { key = "value", title = "", x = 340, width = 180 },
-        { key = "extra", title = "", x = 526, width = 186, justify = "RIGHT" },
-    }, -64, ROWS - 1)
     local function InfoSection()
         if window.section == "items" then return "ah" end
         return window.section
     end
-    infoTable.source = function() return InfoRows(window.detail, InfoSection()) end
-    infoTable.onEnter = function(entry)
-        if type(entry.item) == "string" then
-            GameTooltip:SetHyperlink(entry.item)
-        elseif entry.item then
-            GameTooltip:SetItemByID(entry.item)
-        end
-    end
-    infoTable.fill = function(cells, entry)
-        if entry.header then
-            local color = theme.header
-            cells.label:SetText(format("|cff%02x%02x%02x%s|r", color[1] * 255, color[2] * 255, color[3] * 255, entry.header))
-        else
-            cells.label:SetText("  " .. entry[1])
-            cells.value:SetText(entry[2] or "")
-            cells.extra:SetText(entry[3] or "")
-        end
-    end
     local infoEmpty = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "dim")
     infoEmpty:SetPoint("TOP", 0, -180)
     infoEmpty:SetWidth(520)
-    infoTable.after = function(list)
-        infoEmpty:SetShown(#list == 0)
-        if InfoSection() == "ah" then
-            infoEmpty:SetText(L["Open the auction house with this character to read its auctions."])
-        else
-            infoEmpty:SetText(L["Log in with this character once to read this."])
+    local function InfoTable(top, rows)
+        local t = MakeTable(page, {
+            { key = "label", title = "", x = 4,   width = 330 },
+            { key = "value", title = "", x = 340, width = 180 },
+            { key = "extra", title = "", x = 526, width = 186, justify = "RIGHT" },
+        }, top, rows)
+        t.source = function() return InfoRows(window.detail, InfoSection()) end
+        t.onEnter = function(entry)
+            if type(entry.item) == "string" then
+                GameTooltip:SetHyperlink(entry.item)
+            elseif entry.item then
+                GameTooltip:SetItemByID(entry.item)
+            end
         end
+        t.fill = function(cells, entry)
+            if entry.header then
+                local color = theme.header
+                cells.label:SetText(format("|cff%02x%02x%02x%s|r", color[1] * 255, color[2] * 255, color[3] * 255, entry.header))
+            else
+                cells.label:SetText("  " .. entry[1])
+                cells.value:SetText(entry[2] or "")
+                cells.extra:SetText(entry[3] or "")
+            end
+        end
+        t.after = function(list)
+            infoEmpty:SetShown(#list == 0)
+            if InfoSection() == "ah" then
+                infoEmpty:SetText(L["Open the auction house with this character to read its auctions."])
+            else
+                infoEmpty:SetText(L["Log in with this character once to read this."])
+            end
+        end
+        return t
     end
+    local infoTable = InfoTable(-64, ROWS - 1)
     page.info = infoTable
+    -- las subastas van debajo de los botones de Bolsas, Banco...
+    local auctionTable = InfoTable(-96, ROWS - 3)
+    page.auctions = auctionTable
 
     -- tres arboles de 4 columnas, como la ventana de talentos clasica
     -- source(c) da los arboles, los datos del pj y los nombres
@@ -2779,6 +2922,8 @@ local function BuildCharacterPage(page)
             Border(tree, 1)
             tree.title = forever.Display(Skin(tree:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "header"), 16)
             tree.title:SetPoint("TOP", 0, -6)
+            tree.title:SetWidth(TREE_WIDTH - 20)
+            tree.title:SetWordWrap(false)
             tree.slots, tree.lines = {}, {}
             talents.trees[t] = tree
         end
@@ -2900,17 +3045,24 @@ local function BuildCharacterPage(page)
 
     page.Update = function()
         local c = window.detail
-        name:SetText(ClassIcon(c) .. ClassColored(c, c.name .. (c.realm and (" - " .. c.realm) or "")))
+        -- los iconos van detras del nombre: si no caben, el nombre acaba en ...
+        name:SetText(ClassIcon(c) .. ClassColored(c, c.name .. ui.Realm(c)))
+        name:SetWidth(math.min(math.ceil(ui.TextWidth(name)) + 1, nameRoom))
         local line = format(L["Level %d %s %s"], c.level or 0, c.race or "", c.className or "")
         local progress = LevelProgress(c)
         if progress then line = line .. format(" |cff8fb8ff(%d%%)|r", progress * 100) end
         if c.guild then line = line .. "  <" .. c.guild .. ">" end
         if c.zone then line = line .. "  -  " .. c.zone end
         info:SetText(line)
-        stats:SetText(format("%s: %s     %s: %s     %s: %s     %s: %s",
-            L["Gold"], Money(c.money) .. ((c.mailMoney or 0) > 0 and ("  " .. format(L["(+%s in mail)"], Money(c.mailMoney))) or ""),
-            L["Rested"], RestedText(c),
-            L["Played"], PlayedText(c), L["Last seen"], SeenText(c)))
+        local gold = Money(c.money)
+        if (c.mailMoney or 0) > 0 then gold = gold .. "  " .. format(L["(+%s in mail)"], Money(c.mailMoney)) end
+        local rested = RestedText(c)
+        if Rested(c) then rested = rested .. "  |cff999999(" .. rest.RateText(c) .. ")|r" end
+        stats[1]:SetText(L["Gold"] .. ": " .. gold)
+        stats[2]:SetText(L["Rested"] .. ": " .. rested)
+        stats[3]:SetText(L["Played"] .. ": " .. PlayedText(c))
+        stats[4]:SetText(L["Last seen"] .. ": " .. SeenText(c))
+        infoEmpty:Hide()
         for _, btn in ipairs(page.sectionButtons) do
             if btn.key == window.section then btn:LockHighlight() else btn:UnlockHighlight() end
         end
@@ -2925,6 +3077,7 @@ local function BuildCharacterPage(page)
             search:Hide()
             footer:Hide()
             infoTable:Hide()
+            auctionTable:Hide()
             items:Hide()
             doll:Hide()
             bagHint:Hide()
@@ -2934,7 +3087,8 @@ local function BuildCharacterPage(page)
         for _, btn in ipairs(page.filterButtons) do btn:SetShown(itemsShown) end
         search:SetShown(itemsShown and not auctions)
         footer:SetShown(itemsShown and not auctions)
-        infoTable:SetShown(not itemsShown or auctions)
+        infoTable:SetShown(not itemsShown)
+        auctionTable:SetShown(auctions)
         if not itemsShown or auctions then
             for _, btn in ipairs(page.filterButtons) do
                 SetSelected(btn, btn.key == window.filter)
@@ -2942,7 +3096,7 @@ local function BuildCharacterPage(page)
             items:Hide()
             doll:Hide()
             bagHint:Hide()
-            infoTable:Refresh()
+            if auctions then auctionTable:Refresh() else infoTable:Refresh() end
             return
         end
 
@@ -2994,11 +3148,15 @@ local function RecipeList(c, skillLine, query)
 end
 
 local function BuildRecipesPage(page)
-    local name = forever.Display(page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"), 20)
-    name:SetPoint("TOPLEFT", 16, -8)
-
     local back = MakeButton(page, 100, L["Back"], function() window.ShowTab(window.lastTab or 2) end)
     back:SetPoint("TOPRIGHT", -12, -6)
+    back:FitWidth(80)
+
+    local name = forever.Display(page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"), 20)
+    name:SetPoint("TOPLEFT", 16, -8)
+    name:SetWidth(ui.WIDTH - 16 - 12 - back:GetWidth() - 12)
+    name:SetJustifyH("LEFT")
+    name:SetWordWrap(false)
 
     local search = CreateFrame("EditBox", nil, page, "InputBoxTemplate")
     search:SetSize(240, 20)
@@ -3017,11 +3175,14 @@ local function BuildRecipesPage(page)
             RefreshWindow()
         end)
         btn:SetPoint("TOPLEFT", 16 + (slot - 1) * 142, -36)
-        btn.label:SetWordWrap(false)
         page.profButtons[slot] = btn
     end
+    -- hasta el borde; si no cabe en una linea, en dos
     local hint = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "dim")
     hint:SetPoint("LEFT", search, "RIGHT", 12, 0)
+    hint:SetWidth(ui.WIDTH - 12 - (22 + 240 + 12))
+    hint:SetJustifyH("LEFT")
+    if hint.SetMaxLines then hint:SetMaxLines(2) end
     hint:SetText(L["Search by recipe or material.  Colour: skill-up chance when last opened"])
 
     local recipes = MakeTable(page, {
@@ -3106,23 +3267,30 @@ local function BuildRecipesPage(page)
         local c = window.recipesOf
         name:SetText(ClassIcon(c) .. ClassColored(c))
         local profs = c.profs or {}
-        -- cada boton tan ancho como su texto
-        local x = 16
+        -- cada boton tan ancho como su texto; si entre todos no caben, encogen a la par
+        local shown, total = {}, 0
         for slot, btn in ipairs(page.profButtons) do
             local prof = profs[slot]
             if prof then
                 btn.skillLine = SkillLineOf(prof) or ("?" .. prof.name)
                 local color = prof.rank >= prof.max and "|cffff9933" or ""
                 btn:SetLabel(format("|T%s:14:14|t %s %s%d/%d|r", prof.icon or 134400, prof.name, color, prof.rank, prof.max))
-                btn:SetWidth(btn.label:GetStringWidth() + 20)
-                btn:ClearAllPoints()
-                btn:SetPoint("TOPLEFT", x, -36)
-                x = x + btn:GetWidth() + 6
+                total = total + btn:FitWidth()
                 SetSelected(btn, btn.skillLine == window.recipesSkill)
                 btn:Show()
+                table.insert(shown, btn)
             else
                 btn:Hide()
             end
+        end
+        local room = ui.WIDTH - 16 - 12 - (#shown - 1) * 6
+        local shrink = total > room and room / total or 1
+        local x = 16
+        for _, btn in ipairs(shown) do
+            btn:SetWidth(math.floor(btn:GetWidth() * shrink))
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT", x, -36)
+            x = x + btn:GetWidth() + 6
         end
     end
 end
@@ -3193,6 +3361,7 @@ local function BuildOptionsTab(page)
         RefreshWindow()
     end)
     reset:SetPoint("LEFT", plus, "RIGHT", 12, 0)
+    reset:FitWidth(100)
 
     local alphaLabel = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
     alphaLabel:SetPoint("TOPLEFT", 16, -192)
@@ -3263,6 +3432,7 @@ local function OpenCharacter(c)
     window.section = "items"
     page.search:SetText("")
     page.table.offset = 0
+    page.auctions.offset = 0
     ShowTab(CHARACTER_PAGE)
 end
 
@@ -3355,14 +3525,20 @@ function guildBank.Groups(guild, query)
 end
 
 function guildBank.BuildPage(page)
+    -- el nombre llega hasta los botones de hermandad, y la linea de debajo hasta la busqueda
     local title = forever.Display(page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"), 20)
     title:SetPoint("TOPLEFT", 16, -8)
+    title:SetJustifyH("LEFT")
+    title:SetWordWrap(false)
     local info = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
     info:SetPoint("TOPLEFT", 16, -33)
+    info:SetWidth(ui.WIDTH - 60 - 170 - 16 - 16)
+    info:SetJustifyH("LEFT")
+    info:SetWordWrap(false)
 
     local search = CreateFrame("EditBox", nil, page, "InputBoxTemplate")
     search:SetSize(170, 20)
-    search:SetPoint("TOPRIGHT", -60, -29)
+    search:SetPoint("TOPRIGHT", -60, -31)
     search:SetAutoFocus(false)
     search:SetScript("OnEscapePressed", search.ClearFocus)
     search:SetScript("OnEnterPressed", search.ClearFocus)
@@ -3429,11 +3605,6 @@ function guildBank.BuildPage(page)
                 end
                 Choose(self.key, mouse)
             end)
-            -- los nombres largos acaban en ...
-            for _, text in ipairs({ btn.label, btn.native:GetFontString() }) do
-                text:SetWidth(100)
-                text:SetWordWrap(false)
-            end
             for _, frame in ipairs({ btn, btn.native }) do
                 frame:RegisterForClicks("LeftButtonUp", "RightButtonUp")
                 frame:HookScript("OnEnter", function() GuildTooltip(btn) end)
@@ -3556,6 +3727,8 @@ function guildBank.BuildPage(page)
             end
         end
 
+        local buttons = #list > 3 and 1 or #list
+        title:SetWidth(ui.WIDTH - 16 - 12 - (12 + buttons * 110 + math.max(buttons - 1, 0) * 6))
         if guild then
             title:SetText("|cff99ff99<" .. guildBank.Label(guild) .. ">|r")
             info:SetText(L["Gold"] .. ": " .. Money(guild.money) .. "     "
@@ -3588,7 +3761,7 @@ end
 
 local function BuildWindow()
     window = CreateFrame("Frame", "AltersForeverWindow", UIParent)
-    window:SetSize(740, 106 + 18 + ROWS * ROW_HEIGHT + 30)
+    window:SetSize(ui.WIDTH, 106 + 18 + ROWS * ROW_HEIGHT + 30)
     window:SetScale(db.options.scale)
     local point = db.options.point
     if point then
@@ -3824,6 +3997,9 @@ local function BuildWindow()
     search:SetScript("OnEnterPressed", search.ClearFocus)
     local hint = Skin(window.pages[SEARCH_PAGE]:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "dim")
     hint:SetPoint("LEFT", search, "RIGHT", 12, 0)
+    hint:SetWidth(ui.WIDTH - 12 - (22 + 240 + 12))
+    hint:SetJustifyH("LEFT")
+    hint:SetWordWrap(false)
     hint:SetText(L["Type part of an item name"])
 
     local found = MakeTable(window.pages[SEARCH_PAGE], {
