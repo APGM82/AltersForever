@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.36
+
+- Crafting a recipe with a cooldown, such as Mooncloth, now puts it in Cooldowns right away. Its cooldown was only read from the recipe list, and Mooncloth crafted with the profession open did not show up there.
+
 ## 1.35
 
 - Recipe items now say which of your characters know them even with the item tooltip lines turned off. They have their own switch in Options, "Show which alts know each recipe", so you can leave the item counts to another addon and keep the recipe lines.
