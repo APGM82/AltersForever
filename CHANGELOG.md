@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.37
+
+- Cooldowns are now worked out by the addon itself: when you craft, it notes the server time and adds how long that recipe's cooldown lasts, taken from the game data. It used to ask the game, whose clock counts from when the computer was switched on, so after restarting the computer a cooldown could show up almost 50 days too long. Cooldowns saved like that are fixed.
+- Transmutes share one cooldown, so only the last one you made is listed.
+- Dedicated Study, the legacy talent, shows up in Cooldowns too.
+- Opening a profession no longer reads cooldowns from the game, so something crafted with the addon turned off is not listed.
+
 ## 1.36
 
 - Crafting a recipe with a cooldown, such as Mooncloth, now puts it in Cooldowns right away. Its cooldown was only read from the recipe list, and Mooncloth crafted with the profession open did not show up there.
