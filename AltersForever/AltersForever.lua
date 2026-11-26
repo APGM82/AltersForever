@@ -752,8 +752,19 @@ end
 -- al abrir la profesion la lista tarda en cambiar
 local recipeIndex
 local scanTries = 0
--- la espera global (tambien la de la varita) sale en todas las recetas; las de verdad son de horas
-local SHORT_COOLDOWN = 60
+-- segundos de espera de verdad, o nil. La global (tambien la de la varita) sale en todas las recetas;
+-- las de verdad son de horas. Tambien la del hechizo: con solo la de la receta, la tela lunar
+-- fabricada no se guardaba. Sin local para el 60: no caben mas (limite de 200)
+local function RealCooldown(id)
+    local found, left = pcall(C_TradeSkillUI.GetRecipeCooldown, id)
+    if not found or type(left) ~= "number" then left = 0 end
+    local ok, spellLeft = pcall(function()
+        local info = C_Spell.GetSpellCooldown(id)
+        if info and info.isActive then return info.startTime + info.duration - GetTime() end
+    end)
+    if ok and type(spellLeft) == "number" and spellLeft > left then left = spellLeft end
+    if left > 60 then return left end
+end
 
 local function ScanRecipes()
     if C_TradeSkillUI.IsTradeSkillLinked() or C_TradeSkillUI.IsTradeSkillGuild() or C_TradeSkillUI.IsNPCCrafting() then return end
@@ -799,11 +810,11 @@ local function ScanRecipes()
                     end
                 end
             end
-            local cooldown = C_TradeSkillUI.GetRecipeCooldown(id)
+            local cooldown = RealCooldown(id)
             -- una vez vista con espera se sigue mostrando, como lista
-            if cooldown and cooldown > SHORT_COOLDOWN then
+            if cooldown then
                 me.cooldowns[id] = time() + cooldown
-            elseif me.cooldowns[id] and not (cooldown and cooldown > 0) then
+            elseif me.cooldowns[id] then
                 me.cooldowns[id] = math.min(me.cooldowns[id], time())
             end
         end
@@ -4431,6 +4442,26 @@ loader:SetScript("OnEvent", function(self, event, ...)
     HookTooltips()
     WatchMail()
     BuildMinimapButton()
+
+    -- al fabricar: la lista no siempre se vuelve a leer con la espera ya puesta
+    local crafted = CreateFrame("Frame")
+    crafted:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    crafted:SetScript("OnEvent", function(_, _, _, _, id)
+        if not id or (issecretvalue and issecretvalue(id)) then return end
+        local recipe = db.recipes[id]
+        local known = recipe and recipe.skill and me.recipes and me.recipes[recipe.skill]
+        if not (known and known[id]) then return end
+        for _, delay in ipairs({ 1, 5 }) do
+            C_Timer.After(delay, function()
+                local left = RealCooldown(id)
+                if left then
+                    me.cooldowns = me.cooldowns or {}
+                    me.cooldowns[id] = time() + left
+                    QueueRefresh()
+                end
+            end)
+        end
+    end)
 
     for name in pairs(events) do
         pcall(self.RegisterEvent, self, name)
