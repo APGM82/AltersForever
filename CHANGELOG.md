@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.35
+
+- Recipe items now say which of your characters know them even with the item tooltip lines turned off. They have their own switch in Options, "Show which alts know each recipe", so you can leave the item counts to another addon and keep the recipe lines.
+- One more recipe item from the latest patch is matched to the recipe it teaches.
+
 ## 1.34
 
 - The rested XP of logged-out characters was far too low. When you log out the game no longer says how much rested XP you have or whether you are in an inn or city, so every character was saved with none and as if it were out in the open, where it fills four times slower. Now the addon keeps what the game said while you played. Characters saved by an older version show their rested XP in gray, as a minimum, until you log in with them once.
