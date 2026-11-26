@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenera RecipeItems.lua con las tablas del cliente (wago.tools).
+"""Regenera RecipeItems.lua y Cooldowns.lua con las tablas del cliente (wago.tools).
 
   python3 herramientas/actualizar_datos.py              # build instalada (.build.info)
   python3 herramientas/actualizar_datos.py 1.60.1.71037
@@ -10,6 +10,12 @@ mismo id que da C_TradeSkillUI. La API del juego no lo da, y el nombre del objet
 Transmute Iron to Gold" ensena "Transmute: Iron to Gold", "Patron: toga de lino rojo" ensena "Toga roja de
 lino"... (un 30 % de los objetos en ingles y un 45 % en espanol con la build 71037). Los objetos que no esten
 en la tabla se siguen buscando por el nombre.
+
+Cooldowns.lua dice cuanto dura la espera de cada receta que la tiene, y si la comparte con otras (las
+transmutaciones: fabricar una pone todas en espera, lo que dure la fabricada). Tambien la de hechizos que no
+son recetas pero se usan igual, como Estudio dedicado (talento de legado). El addon apunta la hora de
+servidor al fabricar y le suma esto; no le pregunta al juego cuanto falta, porque su cronometro cuenta desde
+que se encendio el PC y falla si se reinicia con una espera en marcha.
 """
 
 import collections
@@ -27,6 +33,10 @@ URL = "https://wago.tools/db2/{tabla}/csv?build={build}"
 RECETA = 9
 LIBRO = 0           # libros de clase (grimorios, manuales): no son de profesion
 APRENDER = "6"      # ItemEffect.TriggerType: ITEM_SPELLTRIGGER_LEARN_SPELL_ID
+ESPERA_MINIMA = 3600  # segundos; por debajo (hoguera, fuego elemental: minutos) no se listan
+OTROS = {
+    1225469: "Estudio dedicado",  # talento de legado: +1 a la profesion mas baja, cada 23 h
+}
 
 
 def build_instalada():
@@ -59,7 +69,8 @@ def main():
     recetas = {int(f["ID"]): int(f["SubclassID"]) for f in tabla("Item", build)
                if int(f["ClassID"]) == RECETA and int(f["SubclassID"]) != LIBRO}
     efectos = {f["ID"]: f for f in tabla("ItemEffect", build)}
-    de_profesion = {int(f["Spell"]) for f in tabla("SkillLineAbility", build)}
+    habilidades = tabla("SkillLineAbility", build)
+    de_profesion = {int(f["Spell"]) for f in habilidades}
 
     ensena = collections.defaultdict(set)
     for f in tabla("ItemXItemEffect", build):
@@ -89,6 +100,56 @@ def main():
         f.writelines(linea + "\n" for linea in lineas)
         f.write("}\n")
     print(f"RecipeItems.lua: {len(pares)} objetos")
+
+    esperas(build, habilidades)
+
+
+def esperas(build, habilidades):
+    # solo las de la ventana de profesion: tienen categoria de receta (la hoguera o el dragonizo no)
+    recetas = {int(f["Spell"]) for f in habilidades if f["TradeSkillCategoryID"] != "0"} | set(OTROS)
+    tiempos = {int(f["SpellID"]): f for f in tabla("SpellCooldowns", build) if f["DifficultyID"] == "0"}
+    categorias = {int(f["SpellID"]): f for f in tabla("SpellCategories", build) if f["DifficultyID"] == "0"}
+    info = {f["ID"]: f for f in tabla("SpellCategory", build)}
+
+    filas = []
+    for receta in sorted(recetas):
+        t = tiempos.get(receta)
+        if not t:
+            continue
+        propia, compartida = int(t["RecoveryTime"]) // 1000, int(t["CategoryRecoveryTime"]) // 1000
+        categoria = categorias.get(receta, {}).get("Category", "0")
+        cargas = categorias.get(receta, {}).get("ChargeCategory", "0")
+        if max(propia, compartida) < ESPERA_MINIMA:
+            if receta in OTROS:
+                sys.exit(f"{OTROS[receta]} ({receta}) ya no tiene espera: quitalo de OTROS")
+            continue
+        # el addon no sabe de cargas ni de esperas que acaban con el reinicio diario: si aparecen, cambiarlo
+        if cargas != "0" or info.get(categoria, {}).get("Flags", "0") != "0":
+            sys.exit(f"la receta {receta} tiene cargas o una categoria con flags: el addon no lo contempla")
+        if compartida and categoria != "0":
+            filas.append((receta, compartida, int(categoria)))
+        else:
+            filas.append((receta, propia, None))
+    faltan = set(OTROS) - {receta for receta, _, _ in filas}
+    if faltan:
+        sys.exit(f"no encuentro la espera de {sorted(faltan)}: revisar OTROS")
+    # la categoria solo importa si la comparten varias (Estudio dedicado tiene una para el solo)
+    cuantas = collections.Counter(categoria for _, _, categoria in filas)
+    filas = [(r, t, c if c and cuantas[c] > 1 else None) for r, t, c in filas]
+
+    archivo = os.path.join(ADDON, "Cooldowns.lua")
+    with open(archivo, "w", encoding="utf-8", newline="\n") as f:
+        f.write("-- Recetas (y Estudio dedicado) con tiempo de espera: cuanto dura y, si la comparten\n")
+        f.write("-- (transmutaciones), su categoria.\n")
+        f.write(f"-- Generado por herramientas/actualizar_datos.py con la build {build}: no tocar a mano.\n\n")
+        f.write("local _, ns = ...\n\n")
+        f.write("-- hechizo -> { segundos, categoria compartida }\n")
+        f.write("ns.cooldowns = {\n")
+        for receta, segundos, categoria in filas:
+            extra = f", {categoria}" if categoria else ""
+            f.write(f"    [{receta}] = {{ {segundos}{extra} }},\n")
+        f.write("}\n")
+    print(f"Cooldowns.lua: {len(filas)} esperas")
 
 
 if __name__ == "__main__":

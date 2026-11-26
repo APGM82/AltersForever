@@ -34,7 +34,7 @@ local OPTIONS = {
     bgAlpha     = 1,
 }
 
-local DATA_VERSION = 3
+local DATA_VERSION = 4
 local MAIL_DAYS = 30
 local MAIL_WARNING_DAYS = 3
 
@@ -617,7 +617,7 @@ end
 -- una vez por espera
 local function CheckCooldowns()
     if not db.options.cooldownWarning then return end
-    local now = time()
+    local now = GetServerTime()
     for _, c in pairs(db.chars) do
         c.cooldownsWarned = c.cooldownsWarned or {}
         for id, ready in pairs(c.cooldowns or {}) do
@@ -752,19 +752,6 @@ end
 -- al abrir la profesion la lista tarda en cambiar
 local recipeIndex
 local scanTries = 0
--- segundos de espera de verdad, o nil. La global (tambien la de la varita) sale en todas las recetas;
--- las de verdad son de horas. Tambien la del hechizo: con solo la de la receta, la tela lunar
--- fabricada no se guardaba. Sin local para el 60: no caben mas (limite de 200)
-local function RealCooldown(id)
-    local found, left = pcall(C_TradeSkillUI.GetRecipeCooldown, id)
-    if not found or type(left) ~= "number" then left = 0 end
-    local ok, spellLeft = pcall(function()
-        local info = C_Spell.GetSpellCooldown(id)
-        if info and info.isActive then return info.startTime + info.duration - GetTime() end
-    end)
-    if ok and type(spellLeft) == "number" and spellLeft > left then left = spellLeft end
-    if left > 60 then return left end
-end
 
 local function ScanRecipes()
     if C_TradeSkillUI.IsTradeSkillLinked() or C_TradeSkillUI.IsTradeSkillGuild() or C_TradeSkillUI.IsNPCCrafting() then return end
@@ -788,7 +775,6 @@ local function ScanRecipes()
     scanTries = 0
 
     local known = {}
-    me.cooldowns = me.cooldowns or {}
     for _, id in ipairs(C_TradeSkillUI.GetAllRecipeIDs() or {}) do
         local info = C_TradeSkillUI.GetRecipeInfo(id)
         if info and info.learned then
@@ -809,13 +795,6 @@ local function ScanRecipes()
                         table.insert(recipe.reagents, { reagent.itemID, slot.quantityRequired })
                     end
                 end
-            end
-            local cooldown = RealCooldown(id)
-            -- una vez vista con espera se sigue mostrando, como lista
-            if cooldown then
-                me.cooldowns[id] = time() + cooldown
-            elseif me.cooldowns[id] then
-                me.cooldowns[id] = math.min(me.cooldowns[id], time())
             end
         end
     end
@@ -3231,7 +3210,7 @@ local function BuildRecipesPage(page)
         end
         cells.reagents:SetText(entry.reagents and table.concat(mats, "  ") or "|cff808080?|r")
         if entry.ready then
-            local left = entry.ready - time()
+            local left = entry.ready - GetServerTime()
             cells.cooldown:SetText(left > 0 and format(L["ready in %s"], Duration(left)) or ("|cff40bf40" .. L["ready"] .. "|r"))
         end
     end
@@ -4074,9 +4053,10 @@ local function BuildWindow()
         local recipe = entry.recipe
         local prof = recipe.skill and ProfessionOf(entry.c, recipe.skill)
         cells.name:SetText(ClassIcon(entry.c) .. ClassColored(entry.c))
-        cells.recipe:SetText(format("|T%s:14:14|t %s", recipe.icon or 134400, recipe.name or C_Spell.GetSpellName(entry.id) or entry.id))
+        cells.recipe:SetText(format("|T%s:14:14|t %s", recipe.icon or C_Spell.GetSpellTexture(entry.id) or 134400,
+            recipe.name or C_Spell.GetSpellName(entry.id) or entry.id))
         cells.prof:SetText(prof and prof.name or "")
-        local left = entry.ready - time()
+        local left = entry.ready - GetServerTime()
         cells.ready:SetText(left > 0 and Duration(left) or ("|cff40bf40" .. L["ready"] .. "|r"))
     end
     cooldowns.onEnter = function(entry)
@@ -4094,7 +4074,7 @@ local function BuildWindow()
     local empty = Skin(window.pages[COOLDOWNS_PAGE]:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "dim")
     empty:SetPoint("TOP", 0, -120)
     empty:SetWidth(520)
-    empty:SetText(L["No recipe with a cooldown yet. They show up here once a character opens a profession that has them (transmutes, mooncloth...)."])
+    empty:SetText(L["Nothing on cooldown yet. Cooldowns show up here when a character crafts a recipe that has one (transmutes, mooncloth...) or uses Dedicated Study."])
     cooldowns.after = function(list) empty:SetShown(#list == 0) end
     window.pages[COOLDOWNS_PAGE].table = cooldowns
     BuildCharacterPage(window.pages[CHARACTER_PAGE])
@@ -4412,6 +4392,18 @@ loader:SetScript("OnEvent", function(self, event, ...)
     if (db.version or 0) < 3 then
         for _, c in pairs(db.chars) do c.restedUnsure = true end
     end
+    -- hasta 1.36 la espera se le pedia al juego, que tras reiniciar el PC daba 49,7 dias de mas (2^32 ms).
+    -- Se quitan tambien las que no son esperas de verdad segun Cooldowns.lua
+    if (db.version or 0) < 4 then
+        local now = GetServerTime()
+        for _, c in pairs(db.chars) do
+            for id, ready in pairs(c.cooldowns or {}) do
+                local cooldown = ns.cooldowns[id]
+                if cooldown and ready > now + cooldown[1] then ready = math.floor(ready - 2 ^ 32 / 1000) end
+                c.cooldowns[id] = cooldown and ready <= now + cooldown[1] and ready or nil
+            end
+        end
+    end
     db.version = DATA_VERSION
 
     -- por GUID: en Forever el nombre llega tarde y sin reino
@@ -4443,24 +4435,23 @@ loader:SetScript("OnEvent", function(self, event, ...)
     WatchMail()
     BuildMinimapButton()
 
-    -- al fabricar: la lista no siempre se vuelve a leer con la espera ya puesta
+    -- al fabricar se apunta cuando estara lista: hora del servidor + lo que dura (Cooldowns.lua). No se le
+    -- pregunta al juego: su cronometro cuenta desde que se encendio el PC y falla si se reinicia
     local crafted = CreateFrame("Frame")
     crafted:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     crafted:SetScript("OnEvent", function(_, _, _, _, id)
         if not id or (issecretvalue and issecretvalue(id)) then return end
-        local recipe = db.recipes[id]
-        local known = recipe and recipe.skill and me.recipes and me.recipes[recipe.skill]
-        if not (known and known[id]) then return end
-        for _, delay in ipairs({ 1, 5 }) do
-            C_Timer.After(delay, function()
-                local left = RealCooldown(id)
-                if left then
-                    me.cooldowns = me.cooldowns or {}
-                    me.cooldowns[id] = time() + left
-                    QueueRefresh()
-                end
-            end)
+        local cooldown = ns.cooldowns[id]
+        if not cooldown then return end
+        me.cooldowns = me.cooldowns or {}
+        -- las que comparten espera (transmutaciones) se quedan en una: la ultima fabricada
+        if cooldown[2] then
+            for other in pairs(me.cooldowns) do
+                if ns.cooldowns[other] and ns.cooldowns[other][2] == cooldown[2] then me.cooldowns[other] = nil end
+            end
         end
+        me.cooldowns[id] = GetServerTime() + cooldown[1]
+        QueueRefresh()
     end)
 
     for name in pairs(events) do

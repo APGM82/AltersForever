@@ -37,7 +37,8 @@ can learn them and who still needs more skill. Those lines have their own
 switch in Options, so you can keep them with the item counts turned off.
 
 Cooldowns collects profession cooldowns (transmutes, mooncloth and the like)
-from all your characters and tells you in chat when one is ready.
+and Dedicated Study from all your characters and tells you in chat when one is
+ready. A cooldown is noted when you craft, so it needs the addon turned on.
 
 Columns can be sorted by clicking their header. Characters you don't want to
 see can be hidden with a right click, without deleting anything.
