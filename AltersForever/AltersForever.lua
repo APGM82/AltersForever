@@ -30,6 +30,7 @@ local OPTIONS = {
     tooltipSkipMe = false,
     tooltipTotalOnly = false,
     tooltipShift = false,
+    recipeTooltip = true,  -- alters que saben la receta, aparte del inventario
     bgAlpha     = 1,
 }
 
@@ -1457,7 +1458,7 @@ local function RecipeIDsOfItem(itemID, lines)
 end
 
 local function AddRecipeOwners(tooltip, itemID, data)
-    if not db.options.tooltip or not itemID then return end
+    if not db.options.recipeTooltip or not itemID then return end
     local _, _, _, _, _, classID, subClassID = C_Item.GetItemInfoInstant(itemID)
     local skillLine = classID == 9 and RECIPE_SKILL[subClassID]
     if not skillLine then return end
@@ -3353,6 +3354,7 @@ local function BuildOptionsTab(page)
     Check("Leave out the current character", "tooltipSkipMe", 400, -56)
     Check("Only the total", "tooltipTotalOnly", 400, -80)
     Check("Where it is only with Shift held", "tooltipShift", 400, -104)
+    Check("Show which alts know each recipe", "recipeTooltip", 400, -128)
 
     local sizeLabel = Skin(page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"), "text")
     sizeLabel:SetPoint("TOPLEFT", 16, -164)

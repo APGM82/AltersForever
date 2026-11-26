@@ -33,7 +33,8 @@ Professions shows the ranks of every character side by side. Click one to see
 its recipes, coloured by how likely they are to give a skill-up, with their
 materials and how many of them that character has. You can search recipes by
 name or by material. Recipe items in tooltips say who already knows them, who
-can learn them and who still needs more skill.
+can learn them and who still needs more skill. Those lines have their own
+switch in Options, so you can keep them with the item counts turned off.
 
 Cooldowns collects profession cooldowns (transmutes, mooncloth and the like)
 from all your characters and tells you in chat when one is ready.
@@ -51,7 +52,7 @@ every colour lives in `Themes.lua` if you want to make your own.
 | Command | What it does |
 | --- | --- |
 | `/alts` | Open or close the window |
-| `/alts tooltip` | Turn the item tooltip lines on or off |
+| `/alts tooltip` | Turn the lines saying who has each item on or off |
 | `/alts button` | Show or hide the minimap button |
 | `/alts theme horde` | Change the colours (`forever`, `blizzard`, `green`, `blue`, `purple`, `grey`, `classic`, `alliance`, `horde`) |
 | `/alts scale 1.2` | Window size, from 0.6 to 1.6 |
